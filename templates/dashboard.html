@@ -144,8 +144,9 @@
                         actionBtn = `<button class="btn btn-success btn-sm" onclick="markSeen(${ticket.id})">✓ Mark Seen</button>`;
                     }
 
+                    // ADDED: id="ticket-row-${ticket.id}" allows targeted removal
                     html += `
-                        <tr>
+                        <tr id="ticket-row-${ticket.id}">
                             <td><strong>${ticket.ticket_number}</strong></td>
                             <td>${ticket.category || 'General'}</td>
                             <td>${ticket.created_at || ''}</td>
@@ -197,13 +198,11 @@
 
         // Mark Patient Seen (Doctor / Admin)
         async function markSeen(ticketId) {
-            // Optimistic Removal: Remove row immediately from UI for instant doctor experience
-            const rows = document.querySelectorAll("#queue-table-body tr");
-            rows.forEach(row => {
-                if (row.innerHTML.includes(`markSeen(${ticketId})`)) {
-                    row.remove();
-                }
-            });
+            // FIX: Instantly hide the exact row from the doctor's screen by ID
+            const row = document.getElementById(`ticket-row-${ticketId}`);
+            if (row) {
+                row.remove();
+            }
 
             try {
                 const res = await fetch(`/api/ticket/seen/${ticketId}`, { method: 'POST' });
@@ -211,7 +210,7 @@
                 if (data.success) {
                     fetchQueue();
                 } else {
-                    alert('Could not mark patient as seen.');
+                    alert('Could not mark patient as seen. ' + (data.error || ''));
                     fetchQueue();
                 }
             } catch (err) {
