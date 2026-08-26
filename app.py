@@ -13,7 +13,7 @@ DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "mysql-3aceb097-moosadesaidatabase.l.aivencloud.com"),
     "port": int(os.environ.get("DB_PORT", 13603)),
     "user": os.environ.get("DB_USER", "avnadmin"),
-    "password": os.environ.get("DB_PASSWORD"),  # No plain-text fallback here!
+    "password": os.environ.get("DB_PASSWORD"),  # Pulled securely from Render Environment Variables
     "database": os.environ.get("DB_NAME", "defaultdb"),
     "use_pure": True
 }
@@ -84,6 +84,44 @@ def dashboard():
     if "username" not in session:
         return redirect(url_for("login"))
     return render_template("dashboard.html", user=session)
+
+
+@app.route("/stats")
+def stats():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    
+    conn = get_db_connection()
+    if not conn:
+        return "Database connection failed", 500
+    
+    cursor = conn.cursor(dictionary=True)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # Fetch manual seen count from settings
+    cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
+    manual_seen_row = cursor.fetchone()
+    manual_seen = int(manual_seen_row["setting_value"]) if manual_seen_row else 0
+
+    # Fetch automatic seen count from tickets table
+    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
+    auto_seen = cursor.fetchone()["count"]
+
+    # Fetch waiting and called counts
+    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s", (today_str,))
+    waiting_count = cursor.fetchone()["count"]
+
+    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND DATE(created_at) = %s", (today_str,))
+    called_count = cursor.fetchone()["count"]
+
+    cursor.close()
+    conn.close()
+
+    return render_template("stats.html", 
+                           total_seen=auto_seen + manual_seen, 
+                           waiting_count=waiting_count, 
+                           called_count=called_count,
+                           user=session)
 
 
 @app.route("/logout")
