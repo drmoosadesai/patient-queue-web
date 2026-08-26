@@ -6,193 +6,224 @@
     <title>Patient Queue Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .temp-row {
-            opacity: 0.6;
-            transition: opacity 0.3s ease;
+        body {
+            background-color: #f8f9fa;
+        }
+        .stat-card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .badge-called {
+            background-color: #fd7e14;
+        }
+        .badge-waiting {
+            background-color: #6c757d;
         }
     </style>
 </head>
-<body class="bg-light">
-    <nav class="navbar navbar-dark bg-dark px-4 d-flex justify-content-between align-items-center">
-        <span class="navbar-brand fw-bold">Queue System — {{ user.username }} ({{ user.role }})</span>
-        
-        <div class="d-flex align-items-center gap-2">
-            <!-- Stats Link: Visible ONLY for Admin role -->
-            {% if user.role == 'Admin' %}
-                <a href="{{ url_for('stats') }}" class="btn btn-outline-info btn-sm">Stats Dashboard</a>
-            {% endif %}
-            <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand font-weight-bold" href="#">Clinic Queue System</a>
+            <div class="d-flex align-items-center">
+                <span class="navbar-text me-3 text-light">
+                    Logged in as: <strong>{{ user.username }}</strong> ({{ user.role }})
+                </span>
+                {% if user.role == 'Admin' %}
+                    <a href="{{ url_for('stats') }}" class="btn btn-outline-info btn-sm me-2">Analytics</a>
+                {% endif %}
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
+            </div>
         </div>
     </nav>
 
-    <div class="container my-4">
-        <!-- Stat Boxes -->
-        <div class="row text-center g-3 mb-4">
-            <div class="col-6 col-md-3">
-                <div class="card p-3 shadow-sm border-success">
-                    <span class="text-muted small fw-bold">SEEN</span>
-                    <h3 id="stat-seen" class="text-success fw-bold mb-0">0</h3>
+    <div class="container">
+        <!-- Live Counters -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card stat-card text-white bg-secondary mb-3">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Patients Waiting</h5>
+                        <h2 class="display-4 font-weight-bold" id="waiting-count">0</h2>
+                    </div>
                 </div>
             </div>
-            <div class="col-6 col-md-3">
-                <div class="card p-3 shadow-sm border-warning">
-                    <span class="text-muted small fw-bold">WAITING</span>
-                    <h3 id="stat-waiting" class="text-warning fw-bold mb-0">0</h3>
+            <div class="col-md-4">
+                <div class="card stat-card text-white bg-warning mb-3">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Currently Called</h5>
+                        <h2 class="display-4 font-weight-bold" id="called-count">0</h2>
+                    </div>
                 </div>
             </div>
-            <div class="col-6 col-md-3">
-                <div class="card p-3 shadow-sm border-info">
-                    <span class="text-muted small fw-bold">CALLED</span>
-                    <h3 id="stat-called" class="text-info fw-bold mb-0">0</h3>
+            <div class="col-md-4">
+                <div class="card stat-card text-white bg-success mb-3">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">Total Patients Seen</h5>
+                        <h2 class="display-4 font-weight-bold" id="seen-count">0</h2>
+                    </div>
                 </div>
             </div>
         </div>
 
+        <!-- Action Panel (Admin & Reception Only) -->
         {% if user.role in ['Admin', 'Reception'] %}
-        <!-- Ticket Generator Buttons -->
-        <div class="card shadow-sm p-3 mb-4">
-            <h5 class="fw-bold text-secondary mb-3">Create New Patient Ticket</h5>
-            <div class="d-flex flex-wrap gap-2">
-                <button class="btn btn-info text-white flex-fill" onclick="createTicket('Bloods')">Bloods</button>
-                <button class="btn btn-success flex-fill" onclick="createTicket('Scripts')">Scripts</button>
-                <button class="btn btn-warning text-white flex-fill" onclick="createTicket('Skin')">Skin</button>
-                <button class="btn btn-danger flex-fill" onclick="createTicket('Review')">Review</button>
-                <button class="btn btn-primary flex-fill" onclick="createTicket('General Consult')">General Consult</button>
-            </div>
-            <div class="mt-3">
-                <button class="btn btn-dark w-100 fw-bold py-2" onclick="callNext()">CALL NEXT PATIENT</button>
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0">Queue Controls</h5>
+                    <small class="text-muted">Issue tickets or call the next patient into consultation</small>
+                </div>
+                <div>
+                    <button class="btn btn-primary btn-lg me-2" onclick="createTicket()">+ Issue Ticket</button>
+                    <button class="btn btn-warning btn-lg text-white" onclick="callNext()">📢 Call Next Patient</button>
+                </div>
             </div>
         </div>
         {% endif %}
 
-        <!-- Queue Table -->
-        <div class="card shadow-sm p-3">
-            <h5 class="fw-bold text-secondary mb-3">Active Patient Queue</h5>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Ticket</th>
-                            <th>Reason</th>
-                            <th>Arrived</th>
-                            <th>Status</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="queue-table-body">
-                        <!-- Populated via JavaScript -->
-                    </tbody>
-                </table>
+        <!-- Active Queue Table -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Active Queue</h5>
+                <span class="badge bg-primary" id="live-indicator">● Live</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Ticket #</th>
+                                <th>Category</th>
+                                <th>Issued At</th>
+                                <th>Status</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="queue-table-body">
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">Loading queue data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
+        const userRole = "{{ user.role }}";
+
+        // Fetch queue data from server
         async function fetchQueue() {
             try {
-                let response = await fetch('/api/queue');
-                let data = await response.json();
+                const res = await fetch('/api/queue');
+                if (!res.ok) return;
+                const data = await res.json();
                 
-                document.getElementById('stat-seen').innerText = data.total_seen;
-                document.getElementById('stat-waiting').innerText = data.waiting_count;
-                document.getElementById('stat-called').innerText = data.called_count;
+                // Update live counters
+                document.getElementById('waiting-count').innerText = data.waiting_count;
+                document.getElementById('called-count').innerText = data.called_count;
+                document.getElementById('seen-count').innerText = data.total_seen;
 
-                let tbody = document.getElementById('queue-table-body');
-                tbody.innerHTML = '';
+                // Render queue table
+                const tbody = document.getElementById('queue-table-body');
+                if (data.tickets.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">No active patients in the queue.</td></tr>`;
+                    return;
+                }
 
+                let html = '';
                 data.tickets.forEach(ticket => {
-                    let actionBtn = '';
+                    let statusBadge = ticket.status === 'Called' 
+                        ? `<span class="badge badge-called">Called</span>` 
+                        : `<span class="badge badge-waiting">Waiting</span>`;
+
+                    let actionBtn = '-';
                     if (ticket.status === 'Called') {
-                        actionBtn = `<button class="btn btn-success btn-sm" onclick="markSeen(${ticket.id})">Mark Seen</button>`;
-                    } else {
-                        actionBtn = `<span class="badge bg-secondary">Waiting</span>`;
+                        actionBtn = `<button class="btn btn-success btn-sm" onclick="markSeen(${ticket.id})">✓ Mark Seen</button>`;
                     }
 
-                    tbody.innerHTML += `
+                    html += `
                         <tr>
-                            <td class="fw-bold">${ticket.ticket_number}</td>
-                            <td>${ticket.category}</td>
-                            <td>${ticket.created_at.split('T')[1] || ticket.created_at}</td>
-                            <td><span class="badge ${ticket.status === 'Called' ? 'bg-info' : 'bg-warning'}">${ticket.status}</span></td>
-                            <td>${actionBtn}</td>
+                            <td><strong>${ticket.ticket_number}</strong></td>
+                            <td>${ticket.category || 'General'}</td>
+                            <td>${ticket.created_at || ''}</td>
+                            <td>${statusBadge}</td>
+                            <td class="text-end">${actionBtn}</td>
                         </tr>
                     `;
                 });
+                tbody.innerHTML = html;
+
             } catch (err) {
-                console.error("Error fetching queue data:", err);
+                console.error("Error fetching queue:", err);
             }
         }
 
-        async function createTicket(category) {
-            let tbody = document.getElementById('queue-table-body');
-            let waitingStat = document.getElementById('stat-waiting');
-
-            // 1. INSTANT OPTIMISTIC UPDATE (0ms delay)
-            let nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            let tempId = "temp-" + Date.now();
-            
-            // Increment waiting count display instantly
-            let currentWaiting = parseInt(waitingStat.innerText) || 0;
-            waitingStat.innerText = currentWaiting + 1;
-
-            // Render temporary optimistic row
-            let tempRow = document.createElement('tr');
-            tempRow.id = tempId;
-            tempRow.className = 'temp-row';
-            tempRow.innerHTML = `
-                <td class="fw-bold text-muted">...</td>
-                <td>${category}</td>
-                <td>${nowTime}</td>
-                <td><span class="badge bg-secondary">Creating...</span></td>
-                <td><span class="badge bg-secondary">Waiting</span></td>
-            `;
-            tbody.appendChild(tempRow);
-
-            // 2. BACKGROUND FETCH
+        // Issue new ticket (Reception / Admin)
+        async function createTicket() {
             try {
-                let res = await fetch('/api/ticket/create', {
+                const res = await fetch('/api/ticket/create', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ category })
+                    body: JSON.stringify({ category: 'General' })
                 });
-                let data = await res.json();
-
+                const data = await res.json();
                 if (data.success) {
-                    // Refresh queue silently to swap temp row with exact DB row
                     fetchQueue();
                 } else {
-                    throw new Error(data.error || "Error creating ticket");
+                    alert('Error creating ticket: ' + (data.error || 'Unauthorized'));
                 }
             } catch (err) {
-                // Rollback on failure
-                tempRow.remove();
-                waitingStat.innerText = currentWaiting;
-                alert("Error creating ticket. Please try again.");
-                console.error(err);
+                console.error("Error creating ticket:", err);
             }
         }
 
+        // Call Next Patient (Reception / Admin)
         async function callNext() {
-            let res = await fetch('/api/ticket/call_next', { method: 'POST' });
-            let data = await res.json();
-            if (data.success) {
-                alert(`CALL PATIENT: Ticket #${data.ticket.ticket_number}`);
-                fetchQueue();
-            } else {
-                alert(data.message || "No patients waiting.");
+            try {
+                const res = await fetch('/api/ticket/call_next', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    fetchQueue();
+                } else {
+                    alert(data.message || 'No patients waiting.');
+                }
+            } catch (err) {
+                console.error("Error calling next patient:", err);
             }
         }
 
+        // Mark Patient Seen (Doctor / Admin)
         async function markSeen(ticketId) {
-            let res = await fetch(`/api/ticket/seen/${ticketId}`, { method: 'POST' });
-            let data = await res.json();
-            if (data.success) {
+            // Optimistic Removal: Remove row immediately from UI for instant doctor experience
+            const rows = document.querySelectorAll("#queue-table-body tr");
+            rows.forEach(row => {
+                if (row.innerHTML.includes(`markSeen(${ticketId})`)) {
+                    row.remove();
+                }
+            });
+
+            try {
+                const res = await fetch(`/api/ticket/seen/${ticketId}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    fetchQueue();
+                } else {
+                    alert('Could not mark patient as seen.');
+                    fetchQueue();
+                }
+            } catch (err) {
+                console.error("Error marking seen:", err);
                 fetchQueue();
             }
         }
 
-        // Auto-refresh every 3 seconds for real-time syncing across phones/PCs
+        // Poll server every 1 second (1000ms) for fast cross-device sync
         setInterval(fetchQueue, 1000);
+        
+        // Initial load
         fetchQueue();
     </script>
 </body>
