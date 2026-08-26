@@ -1,28 +1,42 @@
 import os
-from datetime import datetime, time, timedelta
+from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import mysql.connector
-from mysql.connector import Error
+from mysql.connector import Error, pooling
 import bcrypt
 
 app = Flask(__name__)
-app.secret_key = "super_secret_queue_key_change_this"  # Needed for secure session handling
+app.secret_key = "super_secret_queue_key_change_this"  # Change this in production
 
-# Database configuration pulling safely from Render Environment Variables
+# Database configuration pulling safely from Environment Variables
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "mysql-3aceb097-moosadesaidatabase.l.aivencloud.com"),
     "port": int(os.environ.get("DB_PORT", 13603)),
     "user": os.environ.get("DB_USER", "avnadmin"),
-    "password": os.environ.get("DB_PASSWORD"),  # Pulled securely from Render Environment Variables
+    "password": os.environ.get("DB_PASSWORD"),
     "database": os.environ.get("DB_NAME", "defaultdb"),
     "use_pure": True
 }
 
+# Create a connection pool to eliminate TCP handshake latency on every request
+try:
+    db_pool = pooling.MySQLConnectionPool(
+        pool_name="queue_pool",
+        pool_size=10,
+        pool_reset_session=True,
+        **DB_CONFIG
+    )
+except Error as e:
+    print(f"Error initializing connection pool: {e}")
+    db_pool = None
+
 
 def get_db_connection():
+    """Retrieve an active connection from the pool."""
+    if not db_pool:
+        return None
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        return conn
+        return db_pool.get_connection()
     except Error as e:
         print(f"Database connection error: {e}")
         return None
@@ -46,7 +60,6 @@ def login():
             stored_password = user["password"]
             login_success = False
 
-            # Check if stored password is a valid bcrypt hash
             if stored_password and (stored_password.startswith("$2b$") or stored_password.startswith("$2a$")):
                 try:
                     if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
@@ -54,7 +67,6 @@ def login():
                 except Exception:
                     pass
             
-            # Fallback: if it's plain text, check and upgrade automatically
             if not login_success and stored_password == password:
                 login_success = True
                 hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -91,7 +103,6 @@ def stats():
     if "username" not in session:
         return redirect(url_for("login"))
     
-    # Restrict stats page access strictly to Admin role
     if session.get("role") != "Admin":
         return redirect(url_for("dashboard"))
     
@@ -102,24 +113,19 @@ def stats():
     cursor = conn.cursor(dictionary=True)
     today_str = datetime.now().strftime("%Y-%m-%d")
     
-    # 1. Fetch manual seen count from settings
     cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
     manual_seen_row = cursor.fetchone()
     manual_seen = int(manual_seen_row["setting_value"]) if manual_seen_row else 0
 
-    # 2. Fetch automatic seen count from tickets table
     cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
     auto_seen = cursor.fetchone()["count"]
 
-    # 3. Fetch waiting and called counts
     cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s", (today_str,))
     waiting_count = cursor.fetchone()["count"]
 
     cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND DATE(created_at) = %s", (today_str,))
     called_count = cursor.fetchone()["count"]
 
-    # 4. Detailed Doctor Stats (Patients seen per doctor & average consultation duration)
-    # Assumes 'doctor' field holds the doctor username, and 'called_at' / 'seen_at' timestamps exist
     cursor.execute("""
         SELECT doctor, 
                COUNT(*) as patients_seen, 
@@ -141,8 +147,6 @@ def stats():
             "avg_duration": f"{minutes}m {seconds}s"
         })
 
-    # 5. Hourly Average Waiting Time (from 07:00 to 16:00)
-    # Waiting time = difference between created_at and called_at (or seen_at if called_at is missing)
     cursor.execute("""
         SELECT HOUR(created_at) as ticket_hour, 
                AVG(TIME_TO_SEC(TIMEDIFF(COALESCE(called_at, seen_at), created_at))) as avg_wait_seconds 
@@ -152,14 +156,12 @@ def stats():
     """, (today_str,))
     hourly_rows = cursor.fetchall()
     
-    # Map into a dictionary for clean sorting/filling between 07:00 and 16:00
     hourly_wait_dict = {row["ticket_hour"]: (row["avg_wait_seconds"] or 0) / 60 for row in hourly_rows}
     
     hourly_labels = []
     hourly_data = []
-    for h in range(7, 17): # 7 AM to 4 PM (16:00)
+    for h in range(7, 17):
         hourly_labels.append(f"{h:02d}:00")
-        # Get average wait time in minutes for that hour, default to 0 if no data
         wait_mins = round(hourly_wait_dict.get(h, 0), 2)
         hourly_data.append(wait_mins)
 
@@ -182,7 +184,7 @@ def logout():
     return redirect(url_for("login"))
 
 
-# --- API Endpoints for Frontend Interaction ---
+# --- API Endpoints ---
 
 @app.route("/api/queue", methods=["GET"])
 def get_queue():
@@ -200,7 +202,6 @@ def get_queue():
     """, (today_str,))
     tickets = cursor.fetchall()
 
-    # Fetch stats
     cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
     manual_seen_row = cursor.fetchone()
     manual_seen = int(manual_seen_row["setting_value"]) if manual_seen_row else 0
@@ -224,28 +225,35 @@ def api_create_ticket():
     if "username" not in session or session["role"] not in ("Admin", "Reception"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
-    category = request.json.get("category")
+    category = request.json.get("category") if request.is_json else None
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    if not conn:
+        return jsonify({"success": False, "error": "Database error"}), 500
 
-    # Get next ticket number
-    cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'next_ticket_number'")
-    row = cursor.fetchone()
-    next_num = int(row["setting_value"]) if row else 1
-    ticket_number = f"{next_num:03d}"
-    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("""
-        INSERT INTO tickets (ticket_number, category, created_at, status, created_by)
-        VALUES (%s, %s, %s, 'Waiting', %s)
-    """, (ticket_number, category, created_at, session["username"]))
+        # Atomic row lock to prevent race conditions & execute fast
+        cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'next_ticket_number' FOR UPDATE")
+        row = cursor.fetchone()
+        next_num = int(row["setting_value"]) if row else 1
+        ticket_number = f"{next_num:03d}"
+        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    cursor.execute("UPDATE settings SET setting_value = %s WHERE setting_name = 'next_ticket_number'", (str(next_num + 1),))
-    conn.commit()
-    cursor.close()
-    conn.close()
+        cursor.execute("""
+            INSERT INTO tickets (ticket_number, category, created_at, status, created_by)
+            VALUES (%s, %s, %s, 'Waiting', %s)
+        """, (ticket_number, category, created_at, session["username"]))
 
-    return jsonify({"success": True, "ticket": ticket_number})
+        cursor.execute("UPDATE settings SET setting_value = %s WHERE setting_name = 'next_ticket_number'", (str(next_num + 1),))
+        conn.commit()
+        return jsonify({"success": True, "ticket": ticket_number})
+    except Error as e:
+        conn.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 
 @app.route("/api/ticket/call_next", methods=["POST"])
@@ -254,6 +262,9 @@ def api_call_next():
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     conn = get_db_connection()
+    if not conn:
+        return jsonify({"success": False, "error": "Database error"}), 500
+
     cursor = conn.cursor(dictionary=True)
     today_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -284,6 +295,9 @@ def api_mark_seen(ticket_id):
     doctor_name = session["username"]
 
     conn = get_db_connection()
+    if not conn:
+        return jsonify({"success": False, "error": "Database error"}), 500
+
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE tickets SET seen_at = %s, doctor = %s, status = 'Seen' WHERE id = %s
