@@ -99,72 +99,119 @@ def stats():
     if session.get("role", "").strip().capitalize() != "Admin":
         return redirect(url_for("dashboard"))
     
+    # Initialize defaults in case database fails completely
+    total_seen = 0
+    waiting_count = 0
+    called_count = 0
+    doctor_stats = []
+    hourly_labels = [f"{h:02d}:00" for h in range(7, 17)]
+    hourly_data = [0 for _ in range(7, 17)]
+
     conn = get_db_connection()
-    if not conn:
-        return "Database connection failed", 500
-    
-    cursor = None
-    try:
-        cursor = conn.cursor(dictionary=True)
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        
-        # Safely fetch manual seen count if settings table exists
-        manual_seen = 0
+    if conn:
+        cursor = None
         try:
-            cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
-            manual_seen_row = cursor.fetchone()
-            if manual_seen_row:
-                manual_seen = int(manual_seen_row["setting_value"])
-        except Exception:
-            pass
-
-        cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
-        auto_seen = (cursor.fetchone() or {}).get("count", 0)
-
-        cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s", (today_str,))
-        waiting_count = (cursor.fetchone() or {}).get("count", 0)
-
-        cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND DATE(created_at) = %s", (today_str,))
-        called_count = (cursor.fetchone() or {}).get("count", 0)
-
-        # Doctor stats with fallback safety
-        doctor_stats = []
-        try:
-            cursor.execute("""
-                SELECT doctor, 
-                       COUNT(*) as patients_seen, 
-                       AVG(TIME_TO_SEC(TIMEDIFF(seen_at, called_at))) as avg_duration_seconds 
-                FROM tickets 
-                WHERE status = 'Seen' AND DATE(created_at) = %s AND doctor IS NOT NULL 
-                GROUP BY doctor
-            """, (today_str,))
-            doctor_rows = cursor.fetchall()
+            cursor = conn.cursor(dictionary=True)
+            today_str = datetime.now().strftime("%Y-%m-%d")
             
-            for row in doctor_rows:
-                avg_sec = row.get("avg_duration_seconds") or 0
-                minutes = int(avg_sec // 60)
-                seconds = int(avg_sec % 60)
-                doctor_stats.append({
-                    "doctor": row.get("doctor", "Unknown"),
-                    "patients_seen": row.get("patients_seen", 0),
-                    "avg_duration": f"{minutes}m {seconds}s"
-                })
-        except Exception as e:
-            print(f"Stats query warning (Doctor stats): {e}")
+            # Manual seen count
+            try:
+                cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
+                manual_seen_row = cursor.fetchone()
+                if manual_seen_row and manual_seen_row.get("setting_value"):
+                    total_seen += int(manual_seen_row["setting_value"])
+            except Exception:
+                pass
 
+            # Auto seen count
+            try:
+                cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
+                row = cursor.fetchone()
+                if row:
+                    total_seen += row.get("count", 0)
+            except Exception:
+                pass
+
+            # Waiting count
+            try:
+                cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s", (today_str,))
+                row = cursor.fetchone()
+                if row:
+                    waiting_count = row.get("count", 0)
+            except Exception:
+                pass
+
+            # Called count
+            try:
+                cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND DATE(created_at) = %s", (today_str,))
+                row = cursor.fetchone()
+                if row:
+                    called_count = row.get("count", 0)
+            except Exception:
+                pass
+
+            # Doctor stats
+            try:
+                cursor.execute("""
+                    SELECT doctor, 
+                           COUNT(*) as patients_seen, 
+                           AVG(TIME_TO_SEC(TIMEDIFF(seen_at, called_at))) as avg_duration_seconds 
+                    FROM tickets 
+                    WHERE status = 'Seen' AND DATE(created_at) = %s AND doctor IS NOT NULL 
+                    GROUP BY doctor
+                """, (today_str,))
+                doctor_rows = cursor.fetchall()
+                
+                for row in doctor_rows:
+                    avg_sec = row.get("avg_duration_seconds") or 0
+                    minutes = int(avg_sec // 60)
+                    seconds = int(avg_sec % 60)
+                    doctor_stats.append({
+                        "doctor": str(row.get("doctor", "Unknown")),
+                        "patients_seen": int(row.get("patients_seen", 0)),
+                        "avg_duration": f"{minutes}m {seconds}s"
+                    })
+            except Exception as e:
+                print(f"Doctor stats warning: {e}")
+
+            # Hourly stats
+            try:
+                cursor.execute("""
+                    SELECT HOUR(created_at) as ticket_hour, 
+                           AVG(TIME_TO_SEC(TIMEDIFF(COALESCE(called_at, seen_at), created_at))) as avg_wait_seconds 
+                    FROM tickets 
+                    WHERE DATE(created_at) = %s AND (called_at IS NOT NULL OR seen_at IS NOT NULL)
+                    GROUP BY HOUR(created_at)
+                """, (today_str,))
+                hourly_rows = cursor.fetchall()
+                hourly_wait_dict = {row["ticket_hour"]: (row["avg_wait_seconds"] or 0) / 60 for row in hourly_rows}
+                
+                hourly_data = []
+                for h in range(7, 17):
+                    wait_mins = round(float(hourly_wait_dict.get(h, 0)), 2)
+                    hourly_data.append(wait_mins)
+            except Exception as e:
+                print(f"Hourly stats warning: {e}")
+
+        except Exception as e:
+            print(f"Database query error in stats: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            conn.close()
+
+    try:
         return render_template("stats.html", 
-                               total_seen=auto_seen + manual_seen, 
+                               total_seen=total_seen, 
                                waiting_count=waiting_count, 
                                called_count=called_count,
                                doctor_stats=doctor_stats,
+                               hourly_labels=hourly_labels,
+                               hourly_data=hourly_data,
                                user=session)
-    except Exception as e:
-        print(f"Critical stats error: {e}")
-        return f"Analytics error: {str(e)}", 500
-    finally:
-        if cursor:
-            cursor.close()
-        conn.close()
+    except Exception as render_err:
+        print(f"Template rendering crash: {render_err}")
+        return f"Template Error: {str(render_err)}", 500
 
 @app.route("/logout")
 def logout():
@@ -249,7 +296,6 @@ def api_create_ticket():
         today_str = datetime.now().strftime("%Y-%m-%d")
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # High-speed ticket generation using index lookup
         cursor.execute("""
             SELECT MAX(CAST(ticket_number AS UNSIGNED)) as max_num 
             FROM tickets 
