@@ -6,9 +6,8 @@ from mysql.connector import Error, pooling
 import bcrypt
 
 app = Flask(__name__)
-app.secret_key = "super_secret_queue_key_change_this"  # Change this in production
+app.secret_key = "super_secret_queue_key_change_this"
 
-# Database configuration pulling safely from Environment Variables
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "mysql-3aceb097-moosadesaidatabase.l.aivencloud.com"),
     "port": int(os.environ.get("DB_PORT", 13603)),
@@ -18,7 +17,6 @@ DB_CONFIG = {
     "use_pure": True
 }
 
-# Create a connection pool to eliminate TCP handshake latency on every request
 try:
     db_pool = pooling.MySQLConnectionPool(
         pool_name="queue_pool",
@@ -30,9 +28,7 @@ except Error as e:
     print(f"Error initializing connection pool: {e}")
     db_pool = None
 
-
 def get_db_connection():
-    """Retrieve an active connection from the pool."""
     if not db_pool:
         return None
     try:
@@ -40,7 +36,6 @@ def get_db_connection():
     except Error as e:
         print(f"Database connection error: {e}")
         return None
-
 
 @app.route("/", methods=["GET", "POST"])
 def login():
@@ -67,7 +62,6 @@ def login():
                 except Exception:
                     pass
             
-            # Fallback for unhashed passwords (legacy data)
             if not login_success and stored_password == password:
                 login_success = True
                 hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -91,20 +85,18 @@ def login():
 
     return render_template("login.html")
 
-
 @app.route("/dashboard")
 def dashboard():
     if "username" not in session:
         return redirect(url_for("login"))
     return render_template("dashboard.html", user=session)
 
-
 @app.route("/stats")
 def stats():
     if "username" not in session:
         return redirect(url_for("login"))
     
-    if session.get("role") != "Admin":
+    if session.get("role", "").strip().capitalize() != "Admin":
         return redirect(url_for("dashboard"))
     
     conn = get_db_connection()
@@ -148,24 +140,6 @@ def stats():
             "avg_duration": f"{minutes}m {seconds}s"
         })
 
-    cursor.execute("""
-        SELECT HOUR(created_at) as ticket_hour, 
-               AVG(TIME_TO_SEC(TIMEDIFF(COALESCE(called_at, seen_at), created_at))) as avg_wait_seconds 
-        FROM tickets 
-        WHERE DATE(created_at) = %s AND (called_at IS NOT NULL OR seen_at IS NOT NULL)
-        GROUP BY HOUR(created_at)
-    """, (today_str,))
-    hourly_rows = cursor.fetchall()
-    
-    hourly_wait_dict = {row["ticket_hour"]: (row["avg_wait_seconds"] or 0) / 60 for row in hourly_rows}
-    
-    hourly_labels = []
-    hourly_data = []
-    for h in range(7, 17):
-        hourly_labels.append(f"{h:02d}:00")
-        wait_mins = round(hourly_wait_dict.get(h, 0), 2)
-        hourly_data.append(wait_mins)
-
     cursor.close()
     conn.close()
 
@@ -174,42 +148,33 @@ def stats():
                            waiting_count=waiting_count, 
                            called_count=called_count,
                            doctor_stats=doctor_stats,
-                           hourly_labels=hourly_labels,
-                           hourly_data=hourly_data,
                            user=session)
-
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
 
-
 @app.route("/emergency-admin-reset")
 def emergency_admin_reset():
-    """Navigate here once in your browser to fix your admin login."""
     conn = get_db_connection()
     if not conn:
         return "Database connection failed", 500
-    
     try:
         cursor = conn.cursor()
         hashed = bcrypt.hashpw("admin".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
         cursor.execute("SELECT * FROM users WHERE username = 'admin'")
         if cursor.fetchone():
             cursor.execute("UPDATE users SET password = %s, role = 'Admin' WHERE username = 'admin'", (hashed,))
         else:
             cursor.execute("INSERT INTO users (username, password, role) VALUES ('admin', %s, 'Admin')", (hashed,))
-        
         conn.commit()
-        return "SUCCESS! Admin account reset. You can now log in with Username: admin | Password: admin"
+        return "SUCCESS! Admin account reset. Username: admin | Password: admin"
     except Exception as e:
-        return f"Error fixing admin: {e}"
+        return f"Error: {e}"
     finally:
         cursor.close()
         conn.close()
-
 
 # --- API Endpoints ---
 
@@ -246,13 +211,13 @@ def get_queue():
         "called_count": sum(1 for t in tickets if t["status"] == "Called")
     })
 
-
 @app.route("/api/ticket/create", methods=["POST"])
 def api_create_ticket():
-    if "username" not in session or session["role"] not in ("Admin", "Reception"):
+    user_role = session.get("role", "").strip().capitalize()
+    if "username" not in session or user_role not in ("Admin", "Reception"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
-    category = request.json.get("category") if request.is_json else None
+    category = request.json.get("category") if request.is_json else "Consultation"
     conn = get_db_connection()
     if not conn:
         return jsonify({"success": False, "error": "Database error"}), 500
@@ -260,19 +225,25 @@ def api_create_ticket():
     cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
-
-        cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'next_ticket_number' FOR UPDATE")
-        row = cursor.fetchone()
-        next_num = int(row["setting_value"]) if row else 1
-        ticket_number = f"{next_num:03d}"
+        today_str = datetime.now().strftime("%Y-%m-%d")
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # High-speed ticket generation using fast index lookup instead of table locking
+        cursor.execute("""
+            SELECT MAX(CAST(ticket_number AS UNSIGNED)) as max_num 
+            FROM tickets 
+            WHERE DATE(created_at) = %s
+        """, (today_str,))
+        row = cursor.fetchone()
+        
+        next_num = (row["max_num"] + 1) if (row and row["max_num"]) else 1
+        ticket_number = f"{next_num:03d}"
 
         cursor.execute("""
             INSERT INTO tickets (ticket_number, category, created_at, status, created_by)
             VALUES (%s, %s, %s, 'Waiting', %s)
         """, (ticket_number, category, created_at, session["username"]))
 
-        cursor.execute("UPDATE settings SET setting_value = %s WHERE setting_name = 'next_ticket_number'", (str(next_num + 1),))
         conn.commit()
         return jsonify({"success": True, "ticket": ticket_number})
     except Exception as e:
@@ -283,10 +254,10 @@ def api_create_ticket():
             cursor.close()
         conn.close()
 
-
 @app.route("/api/ticket/call_next", methods=["POST"])
 def api_call_next():
-    if "username" not in session or session["role"] not in ("Admin", "Reception"):
+    user_role = session.get("role", "").strip().capitalize()
+    if "username" not in session or user_role not in ("Admin", "Reception"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     conn = get_db_connection()
@@ -318,7 +289,6 @@ def api_call_next():
             cursor.close()
         conn.close()
 
-
 @app.route("/api/ticket/seen/<int:ticket_id>", methods=["POST"])
 def api_mark_seen(ticket_id):
     if "username" not in session:
@@ -346,7 +316,6 @@ def api_mark_seen(ticket_id):
         if cursor:
             cursor.close()
         conn.close()
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
