@@ -1,7 +1,6 @@
 import os
-import queue
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 import mysql.connector
 from mysql.connector import Error, pooling
 import bcrypt
@@ -41,35 +40,6 @@ def get_db_connection():
     except Error as e:
         print(f"Database connection error: {e}")
         return None
-
-
-# --- Real-Time Push Mechanism (Server-Sent Events) ---
-announcers = []
-
-def notify_clients():
-    """Broadcast an update signal to all connected frontend clients instantly."""
-    for q in announcers[:]:
-        try:
-            q.put_nowait("update")
-        except Exception:
-            pass
-
-
-@app.route("/api/stream")
-def stream():
-    """SSE endpoint to hold open connections for real-time queue updates."""
-    def event_stream():
-        q = queue.Queue()
-        announcers.append(q)
-        try:
-            while True:
-                msg = q.get()  # Wait until notify_clients() pushes an event
-                yield f"data: {msg}\n\n"
-        except GeneratorExit:
-            if q in announcers:
-                announcers.remove(q)
-
-    return Response(event_stream(), mimetype="text/event-stream")
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -224,7 +194,7 @@ def get_queue():
     
     cursor = conn.cursor(dictionary=True)
     
-    # Using MySQL CURDATE() prevents timezone conflicts between server & client
+    # Use MySQL CURDATE() to avoid timezone drift issues between Python server and DB
     cursor.execute("""
         SELECT * FROM tickets 
         WHERE status IN ('Waiting', 'Called') AND DATE(created_at) = CURDATE() 
@@ -263,6 +233,7 @@ def api_create_ticket():
     try:
         cursor = conn.cursor(dictionary=True)
 
+        # Atomic row lock to prevent race conditions & execute fast
         cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'next_ticket_number' FOR UPDATE")
         row = cursor.fetchone()
         next_num = int(row["setting_value"]) if row else 1
@@ -276,10 +247,6 @@ def api_create_ticket():
 
         cursor.execute("UPDATE settings SET setting_value = %s WHERE setting_name = 'next_ticket_number'", (str(next_num + 1),))
         conn.commit()
-
-        # Trigger instant broadcast to all clients (including Doctors)
-        notify_clients()
-
         return jsonify({"success": True, "ticket": ticket_number})
     except Error as e:
         conn.rollback()
@@ -311,10 +278,6 @@ def api_call_next():
         conn.commit()
         cursor.close()
         conn.close()
-
-        # Trigger instant broadcast to all clients (including Doctors)
-        notify_clients()
-
         return jsonify({"success": True, "ticket": row})
 
     cursor.close()
@@ -342,12 +305,9 @@ def api_mark_seen(ticket_id):
     cursor.close()
     conn.close()
 
-    # Trigger instant broadcast to all clients
-    notify_clients()
-
     return jsonify({"success": True})
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, threaded=True)
