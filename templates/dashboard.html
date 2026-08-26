@@ -69,14 +69,22 @@
         <!-- Action Panel (Admin & Reception Only) -->
         {% if user.role in ['Admin', 'Reception'] %}
         <div class="card mb-4 shadow-sm">
-            <div class="card-body d-flex justify-content-between align-items-center">
+            <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
                 <div>
                     <h5 class="mb-0">Queue Controls</h5>
-                    <small class="text-muted">Issue tickets or call the next patient into consultation</small>
+                    <small class="text-muted">Issue categorized tickets or call the next patient</small>
                 </div>
-                <div>
-                    <button class="btn btn-primary btn-lg me-2" onclick="createTicket()">+ Issue Ticket</button>
-                    <button class="btn btn-warning btn-lg text-white" onclick="callNext()">📢 Call Next Patient</button>
+                <div class="d-flex align-items-center gap-2">
+                    <!-- Category Selector for Issuing Tickets -->
+                    <select id="ticket-category" class="form-select form-select-lg" style="width: 180px;">
+                        <option value="General">General</option>
+                        <option value="Bloods">Bloods</option>
+                        <option value="Injection">Injection</option>
+                        <option value="Consultation">Consultation</option>
+                        <option value="Follow-up">Follow-up</option>
+                    </select>
+                    <button class="btn btn-primary btn-lg" onclick="createTicket()">+ Issue Ticket</button>
+                    <button class="btn btn-warning btn-lg text-white" onclick="callNext()">📢 Call Next</button>
                 </div>
             </div>
         </div>
@@ -113,23 +121,18 @@
 
     <script>
         const userRole = "{{ user.role }}";
-        
-        // Keep track of tickets that the doctor has clicked but DB hasn't finished saving yet
         const processingTickets = new Set();
 
-        // Fetch queue data from server
         async function fetchQueue() {
             try {
                 const res = await fetch('/api/queue');
                 if (!res.ok) return;
                 const data = await res.json();
                 
-                // Update live counters
                 document.getElementById('waiting-count').innerText = data.waiting_count;
                 document.getElementById('called-count').innerText = data.called_count;
                 document.getElementById('seen-count').innerText = data.total_seen;
 
-                // Render queue table
                 const tbody = document.getElementById('queue-table-body');
                 if (data.tickets.length === 0) {
                     tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">No active patients in the queue.</td></tr>`;
@@ -140,7 +143,6 @@
                 let visibleRows = 0;
 
                 data.tickets.forEach(ticket => {
-                    // Skip drawing this row if the doctor just clicked "Mark Seen" on it
                     if (processingTickets.has(ticket.id)) return;
 
                     let statusBadge = ticket.status === 'Called' 
@@ -164,11 +166,10 @@
                     visibleRows++;
                 });
                 
-                // Prevent wiping out table if all rows are currently processing
                 if (visibleRows > 0) {
                     tbody.innerHTML = html;
                 } else if (data.tickets.length === processingTickets.size) {
-                    // Do nothing, wait for next cycle to show empty state
+                    // Do nothing while processing
                 } else {
                     tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">No active patients in the queue.</td></tr>`;
                 }
@@ -178,13 +179,15 @@
             }
         }
 
-        // Issue new ticket (Reception / Admin)
         async function createTicket() {
+            const categorySelect = document.getElementById('ticket-category');
+            const category = categorySelect ? categorySelect.value : 'General';
+
             try {
                 const res = await fetch('/api/ticket/create', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ category: 'General' })
+                    body: JSON.stringify({ category: category })
                 });
                 const data = await res.json();
                 if (data.success) {
@@ -197,7 +200,6 @@
             }
         }
 
-        // Call Next Patient (Reception / Admin)
         async function callNext() {
             try {
                 const res = await fetch('/api/ticket/call_next', { method: 'POST' });
@@ -212,12 +214,9 @@
             }
         }
 
-        // Mark Patient Seen (Doctor / Admin)
         async function markSeen(ticketId) {
-            // Add ID to set so it doesn't reappear in the next fetchQueue cycle
             processingTickets.add(ticketId);
 
-            // Give instant visual feedback
             const row = document.getElementById(`ticket-row-${ticketId}`);
             if (row) {
                 row.style.opacity = '0.5';
@@ -232,7 +231,7 @@
                     if (row) row.remove();
                 } else {
                     alert('Could not mark patient as seen.');
-                    processingTickets.delete(ticketId); // Unfreeze row so they can try again
+                    processingTickets.delete(ticketId);
                 }
             } catch (err) {
                 console.error("Error marking seen:", err);
@@ -241,10 +240,7 @@
             fetchQueue();
         }
 
-        // Poll server every 1 second (1000ms) for fast cross-device sync
         setInterval(fetchQueue, 1000);
-        
-        // Initial load
         fetchQueue();
     </script>
 </body>
