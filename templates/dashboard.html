@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Patient Queue Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .temp-row {
+            opacity: 0.6;
+            transition: opacity 0.3s ease;
+        }
+    </style>
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-dark bg-dark px-4 d-flex justify-content-between align-items-center">
@@ -118,16 +124,51 @@
         }
 
         async function createTicket(category) {
-            let res = await fetch('/api/ticket/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ category })
-            });
-            let data = await res.json();
-            if (data.success) {
-                fetchQueue();
-            } else {
-                alert("Error creating ticket");
+            let tbody = document.getElementById('queue-table-body');
+            let waitingStat = document.getElementById('stat-waiting');
+
+            // 1. INSTANT OPTIMISTIC UPDATE (0ms delay)
+            let nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let tempId = "temp-" + Date.now();
+            
+            // Increment waiting count display instantly
+            let currentWaiting = parseInt(waitingStat.innerText) || 0;
+            waitingStat.innerText = currentWaiting + 1;
+
+            // Render temporary optimistic row
+            let tempRow = document.createElement('tr');
+            tempRow.id = tempId;
+            tempRow.className = 'temp-row';
+            tempRow.innerHTML = `
+                <td class="fw-bold text-muted">...</td>
+                <td>${category}</td>
+                <td>${nowTime}</td>
+                <td><span class="badge bg-secondary">Creating...</span></td>
+                <td><span class="badge bg-secondary">Waiting</span></td>
+            `;
+            tbody.appendChild(tempRow);
+
+            // 2. BACKGROUND FETCH
+            try {
+                let res = await fetch('/api/ticket/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ category })
+                });
+                let data = await res.json();
+
+                if (data.success) {
+                    // Refresh queue silently to swap temp row with exact DB row
+                    fetchQueue();
+                } else {
+                    throw new Error(data.error || "Error creating ticket");
+                }
+            } catch (err) {
+                // Rollback on failure
+                tempRow.remove();
+                waitingStat.innerText = currentWaiting;
+                alert("Error creating ticket. Please try again.");
+                console.error(err);
             }
         }
 
