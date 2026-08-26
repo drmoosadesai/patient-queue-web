@@ -67,7 +67,10 @@ def login():
                 except Exception:
                     pass
             
+<<<<<<< HEAD
             # Fallback for unhashed passwords (legacy data)
+=======
+>>>>>>> 34ee65be6971447e0d136669587f524a4a1b3ae4
             if not login_success and stored_password == password:
                 login_success = True
                 hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -185,6 +188,7 @@ def logout():
     return redirect(url_for("login"))
 
 
+<<<<<<< HEAD
 @app.route("/emergency-admin-reset")
 def emergency_admin_reset():
     """Navigate here once in your browser to fix your admin login."""
@@ -213,6 +217,8 @@ def emergency_admin_reset():
         conn.close()
 
 
+=======
+>>>>>>> 34ee65be6971447e0d136669587f524a4a1b3ae4
 # --- API Endpoints ---
 
 @app.route("/api/queue", methods=["GET"])
@@ -224,7 +230,11 @@ def get_queue():
     cursor = conn.cursor(dictionary=True)
     today_str = datetime.now().strftime("%Y-%m-%d")
     
+<<<<<<< HEAD
     # Using Python's today_str to avoid Database Timezone mismatches
+=======
+    # REVERTED: Using Python's today_str to avoid Database Timezone mismatches
+>>>>>>> 34ee65be6971447e0d136669587f524a4a1b3ae4
     cursor.execute("""
         SELECT * FROM tickets 
         WHERE status IN ('Waiting', 'Called') AND DATE(created_at) = %s 
@@ -354,4 +364,8 @@ def api_mark_seen(ticket_id):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+<<<<<<< HEAD
     app.run(host="0.0.0.0", port=port, threaded=True)
+=======
+    app.run(host="0.0.0.0", port=port, threaded=True)
+>>>>>>> 34ee65be6971447e0d136669587f524a4a1b3ae4
