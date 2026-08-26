@@ -103,52 +103,68 @@ def stats():
     if not conn:
         return "Database connection failed", 500
     
-    cursor = conn.cursor(dictionary=True)
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    
-    cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
-    manual_seen_row = cursor.fetchone()
-    manual_seen = int(manual_seen_row["setting_value"]) if manual_seen_row else 0
+    cursor = None
+    try:
+        cursor = conn.cursor(dictionary=True)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        
+        # Safely fetch manual seen count if settings table exists
+        manual_seen = 0
+        try:
+            cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
+            manual_seen_row = cursor.fetchone()
+            if manual_seen_row:
+                manual_seen = int(manual_seen_row["setting_value"])
+        except Exception:
+            pass
 
-    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
-    auto_seen = cursor.fetchone()["count"]
+        cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
+        auto_seen = (cursor.fetchone() or {}).get("count", 0)
 
-    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s", (today_str,))
-    waiting_count = cursor.fetchone()["count"]
+        cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s", (today_str,))
+        waiting_count = (cursor.fetchone() or {}).get("count", 0)
 
-    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND DATE(created_at) = %s", (today_str,))
-    called_count = cursor.fetchone()["count"]
+        cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND DATE(created_at) = %s", (today_str,))
+        called_count = (cursor.fetchone() or {}).get("count", 0)
 
-    cursor.execute("""
-        SELECT doctor, 
-               COUNT(*) as patients_seen, 
-               AVG(TIME_TO_SEC(TIMEDIFF(seen_at, called_at))) as avg_duration_seconds 
-        FROM tickets 
-        WHERE status = 'Seen' AND DATE(created_at) = %s AND doctor IS NOT NULL 
-        GROUP BY doctor
-    """, (today_str,))
-    doctor_rows = cursor.fetchall()
+        # Doctor stats with fallback safety
+        doctor_stats = []
+        try:
+            cursor.execute("""
+                SELECT doctor, 
+                       COUNT(*) as patients_seen, 
+                       AVG(TIME_TO_SEC(TIMEDIFF(seen_at, called_at))) as avg_duration_seconds 
+                FROM tickets 
+                WHERE status = 'Seen' AND DATE(created_at) = %s AND doctor IS NOT NULL 
+                GROUP BY doctor
+            """, (today_str,))
+            doctor_rows = cursor.fetchall()
+            
+            for row in doctor_rows:
+                avg_sec = row.get("avg_duration_seconds") or 0
+                minutes = int(avg_sec // 60)
+                seconds = int(avg_sec % 60)
+                doctor_stats.append({
+                    "doctor": row.get("doctor", "Unknown"),
+                    "patients_seen": row.get("patients_seen", 0),
+                    "avg_duration": f"{minutes}m {seconds}s"
+                })
+        except Exception as e:
+            print(f"Stats query warning (Doctor stats): {e}")
 
-    doctor_stats = []
-    for row in doctor_rows:
-        avg_sec = row["avg_duration_seconds"] or 0
-        minutes = int(avg_sec // 60)
-        seconds = int(avg_sec % 60)
-        doctor_stats.append({
-            "doctor": row["doctor"],
-            "patients_seen": row["patients_seen"],
-            "avg_duration": f"{minutes}m {seconds}s"
-        })
-
-    cursor.close()
-    conn.close()
-
-    return render_template("stats.html", 
-                           total_seen=auto_seen + manual_seen, 
-                           waiting_count=waiting_count, 
-                           called_count=called_count,
-                           doctor_stats=doctor_stats,
-                           user=session)
+        return render_template("stats.html", 
+                               total_seen=auto_seen + manual_seen, 
+                               waiting_count=waiting_count, 
+                               called_count=called_count,
+                               doctor_stats=doctor_stats,
+                               user=session)
+    except Exception as e:
+        print(f"Critical stats error: {e}")
+        return f"Analytics error: {str(e)}", 500
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
 
 @app.route("/logout")
 def logout():
@@ -194,9 +210,14 @@ def get_queue():
     """, (today_str,))
     tickets = cursor.fetchall()
 
-    cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
-    manual_seen_row = cursor.fetchone()
-    manual_seen = int(manual_seen_row["setting_value"]) if manual_seen_row else 0
+    manual_seen = 0
+    try:
+        cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
+        manual_seen_row = cursor.fetchone()
+        if manual_seen_row:
+            manual_seen = int(manual_seen_row["setting_value"])
+    except Exception:
+        pass
 
     cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
     auto_seen = cursor.fetchone()["count"]
@@ -228,7 +249,7 @@ def api_create_ticket():
         today_str = datetime.now().strftime("%Y-%m-%d")
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # High-speed ticket generation using fast index lookup instead of table locking
+        # High-speed ticket generation using index lookup
         cursor.execute("""
             SELECT MAX(CAST(ticket_number AS UNSIGNED)) as max_num 
             FROM tickets 
