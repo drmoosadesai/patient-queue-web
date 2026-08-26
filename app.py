@@ -193,20 +193,21 @@ def get_queue():
         return jsonify({"error": "DB connection failed"}), 500
     
     cursor = conn.cursor(dictionary=True)
+    today_str = datetime.now().strftime("%Y-%m-%d")
     
-    # Use MySQL CURDATE() to avoid timezone drift issues between Python server and DB
+    # REVERTED: Using Python's today_str to avoid Database Timezone mismatches
     cursor.execute("""
         SELECT * FROM tickets 
-        WHERE status IN ('Waiting', 'Called') AND DATE(created_at) = CURDATE() 
+        WHERE status IN ('Waiting', 'Called') AND DATE(created_at) = %s 
         ORDER BY id ASC
-    """)
+    """, (today_str,))
     tickets = cursor.fetchall()
 
     cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
     manual_seen_row = cursor.fetchone()
     manual_seen = int(manual_seen_row["setting_value"]) if manual_seen_row else 0
 
-    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = CURDATE()")
+    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
     auto_seen = cursor.fetchone()["count"]
 
     cursor.close()
@@ -230,6 +231,7 @@ def api_create_ticket():
     if not conn:
         return jsonify({"success": False, "error": "Database error"}), 500
 
+    cursor = None
     try:
         cursor = conn.cursor(dictionary=True)
 
@@ -248,11 +250,12 @@ def api_create_ticket():
         cursor.execute("UPDATE settings SET setting_value = %s WHERE setting_name = 'next_ticket_number'", (str(next_num + 1),))
         conn.commit()
         return jsonify({"success": True, "ticket": ticket_number})
-    except Error as e:
+    except Exception as e:
         conn.rollback()
         return jsonify({"success": False, "error": str(e)}), 500
     finally:
-        cursor.close()
+        if cursor:
+            cursor.close()
         conn.close()
 
 
@@ -265,24 +268,30 @@ def api_call_next():
     if not conn:
         return jsonify({"success": False, "error": "Database error"}), 500
 
-    cursor = conn.cursor(dictionary=True)
+    cursor = None
+    try:
+        cursor = conn.cursor(dictionary=True)
+        today_str = datetime.now().strftime("%Y-%m-%d")
 
-    cursor.execute("""
-        SELECT * FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = CURDATE() ORDER BY id ASC LIMIT 1
-    """)
-    row = cursor.fetchone()
+        cursor.execute("""
+            SELECT * FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s ORDER BY id ASC LIMIT 1
+        """, (today_str,))
+        row = cursor.fetchone()
 
-    if row:
-        called_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute("UPDATE tickets SET called_at = %s, status = 'Called' WHERE id = %s", (called_at, row["id"]))
-        conn.commit()
-        cursor.close()
+        if row:
+            called_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute("UPDATE tickets SET called_at = %s, status = 'Called' WHERE id = %s", (called_at, row["id"]))
+            conn.commit()
+            return jsonify({"success": True, "ticket": row})
+
+        return jsonify({"success": False, "message": "No patients waiting"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
         conn.close()
-        return jsonify({"success": True, "ticket": row})
-
-    cursor.close()
-    conn.close()
-    return jsonify({"success": False, "message": "No patients waiting"})
 
 
 @app.route("/api/ticket/seen/<int:ticket_id>", methods=["POST"])
@@ -297,15 +306,21 @@ def api_mark_seen(ticket_id):
     if not conn:
         return jsonify({"success": False, "error": "Database error"}), 500
 
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE tickets SET seen_at = %s, doctor = %s, status = 'Seen' WHERE id = %s
-    """, (seen_at, doctor_name, ticket_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-    return jsonify({"success": True})
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE tickets SET seen_at = %s, doctor = %s, status = 'Seen' WHERE id = %s
+        """, (seen_at, doctor_name, ticket_id))
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
 
 
 if __name__ == "__main__":
