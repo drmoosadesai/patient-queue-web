@@ -2,3 +2,5 @@ Flask
 mysql-connector-python
 bcrypt
 gunicorn
+pandas
+openpyxl
