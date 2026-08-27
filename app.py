@@ -1,6 +1,8 @@
 import os
+import io
+import pandas as pd
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
 import mysql.connector
 from mysql.connector import Error, pooling
 import bcrypt
@@ -105,6 +107,9 @@ def stats():
     if username != "caleb":
         return redirect(url_for("dashboard"))
     
+    selected_date = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
+    view_type = request.args.get("type", "daily") # daily, monthly, yearly
+    
     total_seen = 0
     waiting_count = 0
     called_count = 0
@@ -117,18 +122,19 @@ def stats():
         cursor = None
         try:
             cursor = conn.cursor(dictionary=True)
-            today_str = datetime.now().strftime("%Y-%m-%d")
             
-            try:
-                cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
-                manual_seen_row = cursor.fetchone()
-                if manual_seen_row and manual_seen_row.get("setting_value"):
-                    total_seen += int(manual_seen_row["setting_value"])
-            except Exception:
-                pass
+            if view_type == "monthly":
+                date_filter = "DATE_FORMAT(created_at, '%Y-%m') = %s"
+                val = selected_date[:7]
+            elif view_type == "yearly":
+                date_filter = "YEAR(created_at) = %s"
+                val = selected_date[:4]
+            else:
+                date_filter = "DATE(created_at) = %s"
+                val = selected_date
 
             try:
-                cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
+                cursor.execute(f"SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND {date_filter}", (val,))
                 row = cursor.fetchone()
                 if row:
                     total_seen += row.get("count", 0)
@@ -136,7 +142,7 @@ def stats():
                 pass
 
             try:
-                cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s", (today_str,))
+                cursor.execute(f"SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND {date_filter}", (val,))
                 row = cursor.fetchone()
                 if row:
                     waiting_count = row.get("count", 0)
@@ -144,7 +150,7 @@ def stats():
                 pass
 
             try:
-                cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND DATE(created_at) = %s", (today_str,))
+                cursor.execute(f"SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND {date_filter}", (val,))
                 row = cursor.fetchone()
                 if row:
                     called_count = row.get("count", 0)
@@ -152,17 +158,15 @@ def stats():
                 pass
 
             try:
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT doctor, 
                            COUNT(*) as patients_seen, 
                            AVG(TIME_TO_SEC(TIMEDIFF(seen_at, called_at))) as avg_duration_seconds 
                     FROM tickets 
-                    WHERE status = 'Seen' AND DATE(created_at) = %s AND doctor IS NOT NULL 
+                    WHERE status = 'Seen' AND {date_filter} AND doctor IS NOT NULL 
                     GROUP BY doctor
-                """, (today_str,))
-                doctor_rows = cursor.fetchall()
-                
-                for row in doctor_rows:
+                """, (val,))
+                for row in cursor.fetchall():
                     avg_sec = row.get("avg_duration_seconds") or 0
                     minutes = int(avg_sec // 60)
                     seconds = int(avg_sec % 60)
@@ -175,20 +179,16 @@ def stats():
                 print(f"Doctor stats warning: {e}")
 
             try:
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT HOUR(created_at) as ticket_hour, 
                            AVG(TIME_TO_SEC(TIMEDIFF(COALESCE(called_at, seen_at), created_at))) as avg_wait_seconds 
                     FROM tickets 
-                    WHERE DATE(created_at) = %s AND (called_at IS NOT NULL OR seen_at IS NOT NULL)
+                    WHERE {date_filter} AND (called_at IS NOT NULL OR seen_at IS NOT NULL)
                     GROUP BY HOUR(created_at)
-                """, (today_str,))
+                """, (val,))
                 hourly_rows = cursor.fetchall()
                 hourly_wait_dict = {row["ticket_hour"]: (row["avg_wait_seconds"] or 0) / 60 for row in hourly_rows}
-                
-                hourly_data = []
-                for h in range(7, 17):
-                    wait_mins = round(float(hourly_wait_dict.get(h, 0)), 2)
-                    hourly_data.append(wait_mins)
+                hourly_data = [round(float(hourly_wait_dict.get(h, 0)), 2) for h in range(7, 17)]
             except Exception as e:
                 print(f"Hourly stats warning: {e}")
 
@@ -199,19 +199,51 @@ def stats():
                 cursor.close()
             conn.close()
 
-    try:
-        return render_template("stats.html", 
-                               total_seen=total_seen, 
-                               waiting_count=waiting_count, 
-                               called_count=called_count,
-                               doctor_stats=doctor_stats,
-                               hourly_labels=hourly_labels,
-                               hourly_data=hourly_data,
-                               user=session,
-                               is_owner=True)
-    except Exception as render_err:
-        print(f"Template rendering crash: {render_err}")
-        return f"Template Error: {str(render_err)}", 500
+    return render_template("stats.html", 
+                           total_seen=total_seen, 
+                           waiting_count=waiting_count, 
+                           called_count=called_count,
+                           doctor_stats=doctor_stats,
+                           hourly_labels=hourly_labels,
+                           hourly_data=hourly_data,
+                           selected_date=selected_date,
+                           view_type=view_type,
+                           user=session,
+                           is_owner=True)
+
+@app.route("/stats/export")
+def export_stats():
+    if "username" not in session or session.get("username", "").strip().lower() != "caleb":
+        return redirect(url_for("dashboard"))
+    
+    selected_date = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
+    view_type = request.args.get("type", "daily")
+
+    conn = get_db_connection()
+    if not conn:
+        return "Database connection failed", 500
+
+    if view_type == "monthly":
+        date_filter = "DATE_FORMAT(created_at, '%Y-%m') = %s"
+        val = selected_date[:7]
+    elif view_type == "yearly":
+        date_filter = "YEAR(created_at) = %s"
+        val = selected_date[:4]
+    else:
+        date_filter = "DATE(created_at) = %s"
+        val = selected_date
+
+    query = f"SELECT id, ticket_number, category, status, created_by, doctor, created_at, called_at, seen_at FROM tickets WHERE {date_filter}"
+    df = pd.read_sql(query, conn, params=(val,))
+    conn.close()
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Analytics Data')
+    output.seek(0)
+
+    filename = f"analytics_{view_type}_{selected_date}.xlsx"
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=filename)
 
 @app.route("/logout")
 def logout():
@@ -284,7 +316,6 @@ def api_create_ticket():
     username = session.get("username", "").strip().lower()
     user_role = session.get("role", "").strip().lower()
     
-    # Allowed: Caleb (Owner) OR Reception (role: admin)
     if "username" not in session or (username != "caleb" and user_role != "admin"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
@@ -329,7 +360,6 @@ def api_call_next():
     username = session.get("username", "").strip().lower()
     user_role = session.get("role", "").strip().lower()
     
-    # Allowed: Caleb (Owner) OR Reception (role: admin)
     if "username" not in session or (username != "caleb" and user_role != "admin"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
@@ -367,7 +397,6 @@ def api_mark_seen(ticket_id):
     username = session.get("username", "").strip().lower()
     user_role = session.get("role", "").strip().lower()
     
-    # Block reception (role: admin) completely from marking as seen. Allowed for Owner (Caleb) or Doctors.
     if "username" not in session or user_role == "admin":
         return jsonify({"success": False, "error": "Unauthorized: Reception cannot mark tickets as seen"}), 403
 

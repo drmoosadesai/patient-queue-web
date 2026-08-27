@@ -20,7 +20,6 @@
                 <span class="navbar-text me-3 text-light">
                     Logged in as: <strong>{{ user.username }}</strong> ({{ user.role }})
                 </span>
-                <!-- Analytics button visible ONLY to Caleb / Owner -->
                 {% if is_owner %}
                     <a href="{{ url_for('stats') }}" class="btn btn-outline-info btn-sm me-2">Analytics</a>
                 {% endif %}
@@ -58,7 +57,7 @@
             </div>
         </div>
 
-        <!-- Action Panel (Owner & Reception Only) -->
+        <!-- Action Panel -->
         {% if is_owner or user.role | trim | lower == 'admin' %}
         <div class="card mb-4 shadow-sm">
             <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
@@ -141,7 +140,6 @@
                         : `<span class="badge badge-waiting">Waiting</span>`;
 
                     let actionBtn = '-';
-                    // Allow marking seen if User is Owner (Caleb) or if they are NOT the reception account (role == 'admin')
                     if (ticket.status === 'Called' && (isOwner || userRole.toLowerCase() !== 'admin')) {
                         actionBtn = `<button class="btn btn-success btn-sm" onclick="markSeen(${ticket.id})">✓ Mark Seen</button>`;
                     }
