@@ -93,7 +93,8 @@ def dashboard():
         return redirect(url_for("login"))
     
     username = session.get("username", "").strip().lower()
-    is_owner = (username == "caleb") or (session.get("role", "").strip().capitalize() == "Owner")
+    role = session.get("role", "").strip().lower()
+    is_owner = (username == "caleb") or (role == "owner")
     
     return render_template("dashboard.html", user=session, is_owner=is_owner)
 
@@ -102,13 +103,13 @@ def stats():
     if "username" not in session:
         return redirect(url_for("login"))
     
-    # ONLY Caleb (Owner) can view analytics
     username = session.get("username", "").strip().lower()
-    if username != "caleb":
+    role = session.get("role", "").strip().lower()
+    if username != "caleb" and role != "owner":
         return redirect(url_for("dashboard"))
     
     selected_date = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
-    view_type = request.args.get("type", "daily") # daily, monthly, yearly
+    view_type = request.args.get("type", "daily")
     
     total_seen = 0
     waiting_count = 0
@@ -213,7 +214,11 @@ def stats():
 
 @app.route("/stats/export")
 def export_stats():
-    if "username" not in session or session.get("username", "").strip().lower() != "caleb":
+    if "username" not in session:
+        return redirect(url_for("dashboard"))
+    username = session.get("username", "").strip().lower()
+    role = session.get("role", "").strip().lower()
+    if username != "caleb" and role != "owner":
         return redirect(url_for("dashboard"))
     
     selected_date = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
@@ -313,10 +318,14 @@ def get_queue():
 
 @app.route("/api/ticket/create", methods=["POST"])
 def api_create_ticket():
+    if "username" not in session:
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+    
     username = session.get("username", "").strip().lower()
     user_role = session.get("role", "").strip().lower()
     
-    if "username" not in session or (username != "caleb" and user_role != "admin"):
+    # Explicitly permit Caleb, Owner role, or Admin/Reception role
+    if username != "caleb" and user_role not in ["admin", "owner"]:
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     category = request.json.get("category") if request.is_json else "Consultation"
@@ -357,10 +366,14 @@ def api_create_ticket():
 
 @app.route("/api/ticket/call_next", methods=["POST"])
 def api_call_next():
+    if "username" not in session:
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+    
     username = session.get("username", "").strip().lower()
     user_role = session.get("role", "").strip().lower()
     
-    if "username" not in session or (username != "caleb" and user_role != "admin"):
+    # Explicitly permit Caleb, Owner role, or Admin/Reception role
+    if username != "caleb" and user_role not in ["admin", "owner"]:
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     conn = get_db_connection()
@@ -394,10 +407,11 @@ def api_call_next():
 
 @app.route("/api/ticket/seen/<int:ticket_id>", methods=["POST"])
 def api_mark_seen(ticket_id):
-    username = session.get("username", "").strip().lower()
-    user_role = session.get("role", "").strip().lower()
+    if "username" not in session:
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
     
-    if "username" not in session or user_role == "admin":
+    user_role = session.get("role", "").strip().lower()
+    if user_role == "admin":
         return jsonify({"success": False, "error": "Unauthorized: Reception cannot mark tickets as seen"}), 403
 
     seen_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
