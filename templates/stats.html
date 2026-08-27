@@ -20,25 +20,47 @@
     </nav>
 
     <div class="container my-4">
-        <h2 class="fw-bold text-secondary mb-4">Doctor & Queue Analytics</h2>
+        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+            <h2 class="fw-bold text-secondary mb-0">Doctor & Queue Analytics</h2>
+            
+            <!-- Date Range & View Filtering Form -->
+            <form method="GET" action="{{ url_for('stats') }}" class="row g-2 align-items-center">
+                <div class="col-auto">
+                    <select name="type" id="viewType" class="form-select form-select-sm" onchange="updateInputType()">
+                        <option value="daily" {% if view_type == 'daily' %}selected{% endif %}>Daily</option>
+                        <option value="monthly" {% if view_type == 'monthly' %}selected{% endif %}>Monthly</option>
+                        <option value="yearly" {% if view_type == 'yearly' %}selected{% endif %}>Yearly</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <input type="date" name="date" id="dateInput" class="form-control form-control-sm" value="{{ selected_date }}">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                </div>
+                <div class="col-auto">
+                    <a href="{{ url_for('export_stats', type=view_type, date=selected_date) }}" class="btn btn-success btn-sm">📥 Download Excel</a>
+                </div>
+            </form>
+        </div>
 
         <!-- General Overview Cards -->
         <div class="row text-center g-3 mb-4">
             <div class="col-4">
                 <div class="card p-3 shadow-sm border-success">
-                    <span class="text-muted small fw-bold">TOTAL SEEN TODAY</span>
+                    <span class="text-muted small fw-bold">TOTAL SEEN</span>
                     <h3 class="text-success fw-bold mb-0">{{ total_seen }}</h3>
                 </div>
             </div>
             <div class="col-4">
                 <div class="card p-3 shadow-sm border-warning">
-                    <span class="text-muted small fw-bold">CURRENTLY WAITING</span>
+                    <span class="text-muted small fw-bold">WAITING</span>
                     <h3 class="text-warning fw-bold mb-0">{{ waiting_count }}</h3>
                 </div>
             </div>
             <div class="col-4">
                 <div class="card p-3 shadow-sm border-info">
-                    <span class="text-muted small fw-bold">CURRENTLY CALLED</span>
+                    <span class="text-muted small fw-bold">CALLED</span>
                     <h3 class="text-info fw-bold mb-0">{{ called_count }}</h3>
                 </div>
             </div>
@@ -65,7 +87,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="3" class="text-center text-muted py-3">No consultation data captured for doctors yet today.</td>
+                            <td colspan="3" class="text-center text-muted py-3">No consultation data captured for this period.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -81,6 +103,25 @@
             </div>
         </div>
     </div>
+
+    <!-- Script to handle dynamic date picker formatting -->
+    <script>
+        function updateInputType() {
+            const type = document.getElementById('viewType').value;
+            const input = document.getElementById('dateInput');
+            if (type === 'monthly') {
+                input.type = 'month';
+            } else if (type === 'yearly') {
+                input.type = 'number';
+                input.placeholder = 'YYYY';
+                input.min = '2020';
+                input.max = '2030';
+            } else {
+                input.type = 'date';
+            }
+        }
+        updateInputType();
+    </script>
 
     <!-- Chart.js Script to render the waiting time graph -->
     <script>
