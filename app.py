@@ -96,10 +96,10 @@ def stats():
     if "username" not in session:
         return redirect(url_for("login"))
     
-    if session.get("role", "").strip().capitalize() != "Admin":
+    # Strict check: ONLY the primary admin user can view analytics
+    if session.get("username", "").strip().lower() != "admin":
         return redirect(url_for("dashboard"))
     
-    # Initialize defaults in case database fails completely
     total_seen = 0
     waiting_count = 0
     called_count = 0
@@ -114,7 +114,6 @@ def stats():
             cursor = conn.cursor(dictionary=True)
             today_str = datetime.now().strftime("%Y-%m-%d")
             
-            # Manual seen count
             try:
                 cursor.execute("SELECT setting_value FROM settings WHERE setting_name = 'manual_seen_count'")
                 manual_seen_row = cursor.fetchone()
@@ -123,7 +122,6 @@ def stats():
             except Exception:
                 pass
 
-            # Auto seen count
             try:
                 cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
                 row = cursor.fetchone()
@@ -132,7 +130,6 @@ def stats():
             except Exception:
                 pass
 
-            # Waiting count
             try:
                 cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Waiting' AND DATE(created_at) = %s", (today_str,))
                 row = cursor.fetchone()
@@ -141,7 +138,6 @@ def stats():
             except Exception:
                 pass
 
-            # Called count
             try:
                 cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND DATE(created_at) = %s", (today_str,))
                 row = cursor.fetchone()
@@ -150,7 +146,6 @@ def stats():
             except Exception:
                 pass
 
-            # Doctor stats
             try:
                 cursor.execute("""
                     SELECT doctor, 
@@ -174,7 +169,6 @@ def stats():
             except Exception as e:
                 print(f"Doctor stats warning: {e}")
 
-            # Hourly stats
             try:
                 cursor.execute("""
                     SELECT HOUR(created_at) as ticket_hour, 
@@ -282,7 +276,10 @@ def get_queue():
 @app.route("/api/ticket/create", methods=["POST"])
 def api_create_ticket():
     user_role = session.get("role", "").strip().capitalize()
-    if "username" not in session or user_role not in ("Admin", "Reception"):
+    username = session.get("username", "").strip().lower()
+    
+    # Allowed: Admin (username == 'admin') OR Reception role
+    if "username" not in session or (username != "admin" and user_role != "Reception"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     category = request.json.get("category") if request.is_json else "Consultation"
@@ -324,7 +321,10 @@ def api_create_ticket():
 @app.route("/api/ticket/call_next", methods=["POST"])
 def api_call_next():
     user_role = session.get("role", "").strip().capitalize()
-    if "username" not in session or user_role not in ("Admin", "Reception"):
+    username = session.get("username", "").strip().lower()
+    
+    # Allowed: Admin (username == 'admin') OR Reception role
+    if "username" not in session or (username != "admin" and user_role != "Reception"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     conn = get_db_connection()
@@ -358,8 +358,12 @@ def api_call_next():
 
 @app.route("/api/ticket/seen/<int:ticket_id>", methods=["POST"])
 def api_mark_seen(ticket_id):
-    if "username" not in session:
-        return jsonify({"success": False, "error": "Unauthorized"}), 403
+    user_role = session.get("role", "").strip().capitalize()
+    username = session.get("username", "").strip().lower()
+    
+    # Block Reception explicitly from marking as seen. Allowed for Admin or normal Doctor users.
+    if "username" not in session or user_role == "Reception":
+        return jsonify({"success": False, "error": "Unauthorized: Reception cannot mark tickets as seen"}), 403
 
     seen_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     doctor_name = session["username"]
