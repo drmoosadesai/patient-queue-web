@@ -303,8 +303,13 @@ def get_queue():
     except Exception:
         pass
 
-    cursor.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'Seen' AND DATE(created_at) = %s", (today_str,))
-    auto_seen = cursor.fetchone()["count"]
+    # Updated query to accurately count tickets marked seen today
+    cursor.execute("""
+        SELECT COUNT(*) as count FROM tickets 
+        WHERE status = 'Seen' AND (DATE(seen_at) = %s OR (seen_at IS NULL AND DATE(created_at) = %s))
+    """, (today_str, today_str))
+    seen_row = cursor.fetchone()
+    auto_seen = seen_row["count"] if seen_row else 0
 
     cursor.close()
     conn.close()
@@ -324,7 +329,6 @@ def api_create_ticket():
     username = session.get("username", "").strip().lower()
     user_role = session.get("role", "").strip().lower()
     
-    # Explicitly permit Caleb, Owner role, or Admin/Reception role
     if username != "caleb" and user_role not in ["admin", "owner"]:
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
@@ -372,7 +376,6 @@ def api_call_next():
     username = session.get("username", "").strip().lower()
     user_role = session.get("role", "").strip().lower()
     
-    # Explicitly permit Caleb, Owner role, or Admin/Reception role
     if username != "caleb" and user_role not in ["admin", "owner"]:
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
