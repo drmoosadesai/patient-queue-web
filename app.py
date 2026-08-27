@@ -89,15 +89,20 @@ def login():
 def dashboard():
     if "username" not in session:
         return redirect(url_for("login"))
-    return render_template("dashboard.html", user=session)
+    
+    username = session.get("username", "").strip().lower()
+    is_owner = (username == "caleb") or (session.get("role", "").strip().capitalize() == "Owner")
+    
+    return render_template("dashboard.html", user=session, is_owner=is_owner)
 
 @app.route("/stats")
 def stats():
     if "username" not in session:
         return redirect(url_for("login"))
     
-    # Strict check: ONLY the primary admin user can view analytics
-    if session.get("username", "").strip().lower() != "admin":
+    # ONLY Caleb (Owner) can view analytics
+    username = session.get("username", "").strip().lower()
+    if username != "caleb":
         return redirect(url_for("dashboard"))
     
     total_seen = 0
@@ -202,7 +207,8 @@ def stats():
                                doctor_stats=doctor_stats,
                                hourly_labels=hourly_labels,
                                hourly_data=hourly_data,
-                               user=session)
+                               user=session,
+                               is_owner=True)
     except Exception as render_err:
         print(f"Template rendering crash: {render_err}")
         return f"Template Error: {str(render_err)}", 500
@@ -220,13 +226,13 @@ def emergency_admin_reset():
     try:
         cursor = conn.cursor()
         hashed = bcrypt.hashpw("admin".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        cursor.execute("SELECT * FROM users WHERE username = 'admin'")
+        cursor.execute("SELECT * FROM users WHERE username = 'caleb'")
         if cursor.fetchone():
-            cursor.execute("UPDATE users SET password = %s, role = 'Admin' WHERE username = 'admin'", (hashed,))
+            cursor.execute("UPDATE users SET password = %s, role = 'Owner' WHERE username = 'caleb'", (hashed,))
         else:
-            cursor.execute("INSERT INTO users (username, password, role) VALUES ('admin', %s, 'Admin')", (hashed,))
+            cursor.execute("INSERT INTO users (username, password, role) VALUES ('caleb', %s, 'Owner')", (hashed,))
         conn.commit()
-        return "SUCCESS! Admin account reset. Username: admin | Password: admin"
+        return "SUCCESS! Owner account reset. Username: caleb | Password: admin"
     except Exception as e:
         return f"Error: {e}"
     finally:
@@ -275,11 +281,11 @@ def get_queue():
 
 @app.route("/api/ticket/create", methods=["POST"])
 def api_create_ticket():
-    user_role = session.get("role", "").strip().capitalize()
     username = session.get("username", "").strip().lower()
+    user_role = session.get("role", "").strip().lower()
     
-    # Allowed: Admin (username == 'admin') OR Reception role
-    if "username" not in session or (username != "admin" and user_role != "Reception"):
+    # Allowed: Caleb (Owner) OR Reception (role: admin)
+    if "username" not in session or (username != "caleb" and user_role != "admin"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     category = request.json.get("category") if request.is_json else "Consultation"
@@ -320,11 +326,11 @@ def api_create_ticket():
 
 @app.route("/api/ticket/call_next", methods=["POST"])
 def api_call_next():
-    user_role = session.get("role", "").strip().capitalize()
     username = session.get("username", "").strip().lower()
+    user_role = session.get("role", "").strip().lower()
     
-    # Allowed: Admin (username == 'admin') OR Reception role
-    if "username" not in session or (username != "admin" and user_role != "Reception"):
+    # Allowed: Caleb (Owner) OR Reception (role: admin)
+    if "username" not in session or (username != "caleb" and user_role != "admin"):
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     conn = get_db_connection()
@@ -358,11 +364,11 @@ def api_call_next():
 
 @app.route("/api/ticket/seen/<int:ticket_id>", methods=["POST"])
 def api_mark_seen(ticket_id):
-    user_role = session.get("role", "").strip().capitalize()
     username = session.get("username", "").strip().lower()
+    user_role = session.get("role", "").strip().lower()
     
-    # Block Reception explicitly from marking as seen. Allowed for Admin or normal Doctor users.
-    if "username" not in session or user_role == "Reception":
+    # Block reception (role: admin) completely from marking as seen. Allowed for Owner (Caleb) or Doctors.
+    if "username" not in session or user_role == "admin":
         return jsonify({"success": False, "error": "Unauthorized: Reception cannot mark tickets as seen"}), 403
 
     seen_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
