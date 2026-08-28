@@ -16,7 +16,8 @@ DB_CONFIG = {
     "user": os.environ.get("DB_USER", "avnadmin"),
     "password": os.environ.get("DB_PASSWORD"),
     "database": os.environ.get("DB_NAME", "defaultdb"),
-    "use_pure": True
+    "use_pure": True,
+    "connection_timeout": 5
 }
 
 try:
@@ -303,7 +304,6 @@ def get_queue():
     except Exception:
         pass
 
-    # Updated query to accurately count tickets marked seen today
     cursor.execute("""
         SELECT COUNT(*) as count FROM tickets 
         WHERE status = 'Seen' AND (DATE(seen_at) = %s OR (seen_at IS NULL AND DATE(created_at) = %s))

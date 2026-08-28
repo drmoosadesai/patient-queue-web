@@ -57,7 +57,7 @@
             </div>
         </div>
 
-        <!-- Action Panel (Visible to Owner, Admin, and Reception roles) -->
+        <!-- Action Panel -->
         {% set current_role = user.role | trim | lower %}
         {% if is_owner or current_role in ['admin', 'owner', 'reception'] %}
         <div class="card mb-4 shadow-sm">
@@ -231,7 +231,8 @@
             fetchQueue();
         }
 
-        setInterval(fetchQueue, 1000);
+        // Optimized polling interval from 1s to 15s to eliminate database bottlenecks
+        setInterval(fetchQueue, 15000);
         fetchQueue();
     </script>
 </body>
