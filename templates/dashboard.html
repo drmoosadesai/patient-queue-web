@@ -9,6 +9,7 @@
         body { background-color: #f8f9fa; }
         .stat-card { border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .badge-called { background-color: #fd7e14; }
+        .badge-consulting { background-color: #0dcaf0; color: #000; }
         .badge-waiting { background-color: #6c757d; }
     </style>
 </head>
@@ -42,7 +43,7 @@
             <div class="col-md-4">
                 <div class="card stat-card text-white bg-warning mb-3">
                     <div class="card-body text-center">
-                        <h5 class="card-title">Currently Called</h5>
+                        <h5 class="card-title">Active / Called</h5>
                         <h2 class="display-4 font-weight-bold" id="called-count">0</h2>
                     </div>
                 </div>
@@ -136,13 +137,18 @@
                 data.tickets.forEach(ticket => {
                     if (processingTickets.has(ticket.id)) return;
 
-                    let statusBadge = ticket.status === 'Called' 
-                        ? `<span class="badge badge-called">Called</span>` 
-                        : `<span class="badge badge-waiting">Waiting</span>`;
+                    let statusBadge = `<span class="badge badge-waiting">Waiting</span>`;
+                    if (ticket.status === 'Called') {
+                        statusBadge = `<span class="badge badge-called">Called</span>`;
+                    } else if (ticket.status === 'In Consultation') {
+                        statusBadge = `<span class="badge badge-consulting">In Consultation</span>`;
+                    }
 
                     let actionBtn = '-';
                     if (ticket.status === 'Called' && (isOwner || userRole.toLowerCase() !== 'admin')) {
-                        actionBtn = `<button class="btn btn-success btn-sm" onclick="markSeen(${ticket.id})">✓ Mark Seen</button>`;
+                        actionBtn = `<button class="btn btn-info btn-sm text-white" onclick="startConsultation(${ticket.id})">▶ Start Consultation</button>`;
+                    } else if (ticket.status === 'In Consultation' && (isOwner || userRole.toLowerCase() !== 'admin')) {
+                        actionBtn = `<button class="btn btn-success btn-sm" onclick="endConsultation(${ticket.id})">⏹ End Consultation</button>`;
                     }
 
                     html += `
@@ -205,33 +211,52 @@
             }
         }
 
-        async function markSeen(ticketId) {
+        async function startConsultation(ticketId) {
             processingTickets.add(ticketId);
-
             const row = document.getElementById(`ticket-row-${ticketId}`);
             if (row) {
                 row.style.opacity = '0.5';
                 const btn = row.querySelector('button');
-                if (btn) btn.innerText = "Saving...";
+                if (btn) btn.innerText = "Starting...";
             }
 
             try {
-                const res = await fetch(`/api/ticket/seen/${ticketId}`, { method: 'POST' });
+                const res = await fetch(`/api/ticket/start/${ticketId}`, { method: 'POST' });
+                const data = await res.json();
+                if (!data.success) {
+                    alert('Could not start consultation.');
+                }
+            } catch (err) {
+                console.error("Error starting consultation:", err);
+            }
+            processingTickets.delete(ticketId);
+            fetchQueue();
+        }
+
+        async function endConsultation(ticketId) {
+            processingTickets.add(ticketId);
+            const row = document.getElementById(`ticket-row-${ticketId}`);
+            if (row) {
+                row.style.opacity = '0.5';
+                const btn = row.querySelector('button');
+                if (btn) btn.innerText = "Ending...";
+            }
+
+            try {
+                const res = await fetch(`/api/ticket/end/${ticketId}`, { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
                     if (row) row.remove();
                 } else {
-                    alert('Could not mark patient as seen.');
-                    processingTickets.delete(ticketId);
+                    alert('Could not end consultation.');
                 }
             } catch (err) {
-                console.error("Error marking seen:", err);
-                processingTickets.delete(ticketId);
+                console.error("Error ending consultation:", err);
             }
+            processingTickets.delete(ticketId);
             fetchQueue();
         }
 
-        // Optimized polling interval from 1s to 15s to eliminate database bottlenecks
         setInterval(fetchQueue, 15000);
         fetchQueue();
     </script>

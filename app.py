@@ -32,6 +32,16 @@ try:
         pool_reset_session=True,
         **DB_CONFIG
     )
+    # Ensure started_at column exists for consultation tracking
+    temp_conn = db_pool.get_connection()
+    temp_cursor = temp_conn.cursor()
+    try:
+        temp_cursor.execute("ALTER TABLE tickets ADD COLUMN started_at DATETIME NULL")
+        temp_conn.commit()
+    except Exception:
+        pass
+    temp_cursor.close()
+    temp_conn.close()
 except Error as e:
     print(f"Error initializing connection pool: {e}")
     db_pool = None
@@ -159,7 +169,7 @@ def stats():
                 pass
 
             try:
-                cursor.execute(f"SELECT COUNT(*) as count FROM tickets WHERE status = 'Called' AND {date_filter}", (val,))
+                cursor.execute(f"SELECT COUNT(*) as count FROM tickets WHERE status IN ('Called', 'In Consultation') AND {date_filter}", (val,))
                 row = cursor.fetchone()
                 if row:
                     called_count = row.get("count", 0)
@@ -170,7 +180,7 @@ def stats():
                 cursor.execute(f"""
                     SELECT doctor, 
                            COUNT(*) as patients_seen, 
-                           AVG(TIME_TO_SEC(TIMEDIFF(seen_at, called_at))) as avg_duration_seconds 
+                           AVG(TIME_TO_SEC(TIMEDIFF(seen_at, started_at))) as avg_duration_seconds 
                     FROM tickets 
                     WHERE status = 'Seen' AND {date_filter} AND doctor IS NOT NULL 
                     GROUP BY doctor
@@ -190,9 +200,9 @@ def stats():
             try:
                 cursor.execute(f"""
                     SELECT HOUR(created_at) as ticket_hour, 
-                           AVG(TIME_TO_SEC(TIMEDIFF(COALESCE(called_at, seen_at), created_at))) as avg_wait_seconds 
+                           AVG(TIME_TO_SEC(TIMEDIFF(COALESCE(called_at, started_at), created_at))) as avg_wait_seconds 
                     FROM tickets 
-                    WHERE {date_filter} AND (called_at IS NOT NULL OR seen_at IS NOT NULL)
+                    WHERE {date_filter} AND (called_at IS NOT NULL OR started_at IS NOT NULL)
                     GROUP BY HOUR(created_at)
                 """, (val,))
                 hourly_rows = cursor.fetchall()
@@ -246,7 +256,7 @@ def export_stats():
         date_filter = "DATE(created_at) = %s"
         val = selected_date
 
-    query = f"SELECT id, ticket_number, category, status, created_by, doctor, created_at, called_at, seen_at FROM tickets WHERE {date_filter}"
+    query = f"SELECT id, ticket_number, category, status, created_by, doctor, created_at, called_at, started_at, seen_at FROM tickets WHERE {date_filter}"
     df = pd.read_sql(query, conn, params=(val,))
     conn.close()
 
@@ -297,7 +307,7 @@ def get_queue():
     
     cursor.execute("""
         SELECT * FROM tickets 
-        WHERE status IN ('Waiting', 'Called') AND DATE(created_at) = %s 
+        WHERE status IN ('Waiting', 'Called', 'In Consultation') AND DATE(created_at) = %s 
         ORDER BY id ASC
     """, (today_str,))
     tickets = cursor.fetchall()
@@ -325,7 +335,7 @@ def get_queue():
         "tickets": tickets,
         "total_seen": auto_seen + manual_seen,
         "waiting_count": sum(1 for t in tickets if t["status"] == "Waiting"),
-        "called_count": sum(1 for t in tickets if t["status"] == "Called")
+        "called_count": sum(1 for t in tickets if t["status"] in ('Called', 'In Consultation'))
     })
 
 @app.route("/api/ticket/create", methods=["POST"])
@@ -403,12 +413,12 @@ def api_call_next():
             cursor.close()
         conn.close()
 
-@app.route("/api/ticket/seen/<int:ticket_id>", methods=["POST"])
-def api_mark_seen(ticket_id):
+@app.route("/api/ticket/start/<int:ticket_id>", methods=["POST"])
+def api_start_consultation(ticket_id):
     if "username" not in session:
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
-    seen_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     doctor_name = session["username"]
 
     conn = get_db_connection()
@@ -419,8 +429,35 @@ def api_mark_seen(ticket_id):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE tickets SET seen_at = %s, doctor = %s, status = 'Seen' WHERE id = %s
-        """, (seen_at, doctor_name, ticket_id))
+            UPDATE tickets SET started_at = %s, doctor = %s, status = 'In Consultation' WHERE id = %s
+        """, (started_at, doctor_name, ticket_id))
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        conn.close()
+
+@app.route("/api/ticket/end/<int:ticket_id>", methods=["POST"])
+def api_end_consultation(ticket_id):
+    if "username" not in session:
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    seen_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"success": False, "error": "Database error"}), 500
+
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE tickets SET seen_at = %s, status = 'Seen' WHERE id = %s
+        """, (seen_at, ticket_id))
         conn.commit()
         return jsonify({"success": True})
     except Exception as e:
