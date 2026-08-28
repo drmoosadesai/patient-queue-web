@@ -1,14 +1,19 @@
 import os
 import io
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
 import mysql.connector
 from mysql.connector import Error, pooling
 import bcrypt
 
 app = Flask(__name__)
-app.secret_key = "super_secret_queue_key_change_this"
+app.secret_key = "a_very_secure_and_permanent_random_string_for_queue_app_2026"
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
+
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
 
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "mysql-3aceb097-moosadesaidatabase.l.aivencloud.com"),
@@ -77,9 +82,11 @@ def login():
             conn.close()
 
             if login_success:
+                session.permanent = True
                 session["user_id"] = user["id"]
                 session["username"] = user["username"]
                 session["role"] = user["role"]
+                session.modified = True
                 return redirect(url_for("dashboard"))
 
         cursor.close()
