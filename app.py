@@ -331,13 +331,7 @@ def get_queue():
 @app.route("/api/ticket/create", methods=["POST"])
 def api_create_ticket():
     if "username" not in session:
-        return jsonify({"success": False, "error": "Unauthorized"}), 403
-    
-    username = session.get("username", "").strip().lower()
-    user_role = session.get("role", "").strip().lower()
-    
-    if username != "caleb" and user_role not in ["admin", "owner"]:
-        return jsonify({"success": False, "error": "Unauthorized"}), 403
+        return jsonify({"success": False, "error": "Unauthorized: No active session"}), 403
 
     category = request.json.get("category") if request.is_json else "Consultation"
     conn = get_db_connection()
@@ -363,7 +357,7 @@ def api_create_ticket():
         cursor.execute("""
             INSERT INTO tickets (ticket_number, category, created_at, status, created_by)
             VALUES (%s, %s, %s, 'Waiting', %s)
-        """, (ticket_number, category, created_at, session["username"]))
+        """, (ticket_number, category, created_at, session.get("username", "system")))
 
         conn.commit()
         return jsonify({"success": True, "ticket": ticket_number})
@@ -378,12 +372,6 @@ def api_create_ticket():
 @app.route("/api/ticket/call_next", methods=["POST"])
 def api_call_next():
     if "username" not in session:
-        return jsonify({"success": False, "error": "Unauthorized"}), 403
-    
-    username = session.get("username", "").strip().lower()
-    user_role = session.get("role", "").strip().lower()
-    
-    if username != "caleb" and user_role not in ["admin", "owner"]:
         return jsonify({"success": False, "error": "Unauthorized"}), 403
 
     conn = get_db_connection()
@@ -419,10 +407,6 @@ def api_call_next():
 def api_mark_seen(ticket_id):
     if "username" not in session:
         return jsonify({"success": False, "error": "Unauthorized"}), 403
-    
-    user_role = session.get("role", "").strip().lower()
-    if user_role == "admin":
-        return jsonify({"success": False, "error": "Unauthorized: Reception cannot mark tickets as seen"}), 403
 
     seen_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     doctor_name = session["username"]
