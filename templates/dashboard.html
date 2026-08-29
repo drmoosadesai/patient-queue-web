@@ -15,44 +15,51 @@
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-        <div class="container">
-            <a class="navbar-brand font-weight-bold" href="#">Clinic Queue System</a>
-            <div class="d-flex align-items-center">
-                <span class="navbar-text me-3 text-light">
-                    Logged in as: <strong>{{ user.username }}</strong> ({{ user.role }})
-                </span>
-                {% if is_owner %}
-                    <a href="{{ url_for('stats') }}" class="btn btn-outline-info btn-sm me-2">Analytics</a>
-                {% endif %}
-                <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
+        <div class="container-fluid px-3">
+            <a class="navbar-brand fw-bold" href="#">Clinic Queue System</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse justify-content-end" id="navbarContent">
+                <div class="d-flex flex-column flex-lg-row align-items-lg-center gap-2 mt-3 mt-lg-0">
+                    <span class="navbar-text text-light me-lg-3">
+                        Logged in as: <strong>{{ user.username }}</strong> ({{ user.role }})
+                    </span>
+                    <div class="d-flex gap-2">
+                        {% if is_owner %}
+                            <a href="{{ url_for('stats') }}" class="btn btn-outline-info btn-sm">Analytics</a>
+                        {% endif %}
+                        <a href="{{ url_for('logout') }}" class="btn btn-outline-danger btn-sm">Logout</a>
+                    </div>
+                </div>
             </div>
         </div>
     </nav>
 
-    <div class="container">
+    <div class="container px-3">
         <!-- Live Counters -->
         <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="card stat-card text-white bg-secondary mb-3">
+            <div class="col-12 col-md-4 mb-3 mb-md-0">
+                <div class="card stat-card text-white bg-secondary">
                     <div class="card-body text-center">
                         <h5 class="card-title">Patients Waiting</h5>
-                        <h2 class="display-4 font-weight-bold" id="waiting-count">0</h2>
+                        <h2 class="display-4 fw-bold" id="waiting-count">0</h2>
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card stat-card text-white bg-warning mb-3">
+            <div class="col-12 col-md-4 mb-3 mb-md-0">
+                <div class="card stat-card text-white bg-warning">
                     <div class="card-body text-center">
                         <h5 class="card-title">Active / Called</h5>
-                        <h2 class="display-4 font-weight-bold" id="called-count">0</h2>
+                        <h2 class="display-4 fw-bold" id="called-count">0</h2>
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card stat-card text-white bg-success mb-3">
+            <div class="col-12 col-md-4">
+                <div class="card stat-card text-white bg-success">
                     <div class="card-body text-center">
                         <h5 class="card-title">Total Patients Seen</h5>
-                        <h2 class="display-4 font-weight-bold" id="seen-count">0</h2>
+                        <h2 class="display-4 fw-bold" id="seen-count">0</h2>
                     </div>
                 </div>
             </div>
@@ -62,27 +69,31 @@
         {% set current_role = user.role | trim | lower %}
         {% if is_owner or current_role in ['admin', 'owner', 'reception'] %}
         <div class="card mb-4 shadow-sm">
-            <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
-                <div>
-                    <h5 class="mb-0">Queue Controls</h5>
-                    <small class="text-muted">Issue categorized tickets or call the next patient</small>
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    <select id="ticket-category" class="form-select form-select-lg" style="width: 210px;">
-                        <option value="Bloods or Script">Bloods or Script</option>
-                        <option value="Review">Review</option>
-                        <option value="Consultation">Consultation</option>
-                        <option value="Skin">Skin</option>
-                    </select>
-                    <button class="btn btn-primary btn-lg" onclick="createTicket()">+ Issue Ticket</button>
-                    <button class="btn btn-warning btn-lg text-white" onclick="callNext()">📢 Call Next</button>
+            <div class="card-body">
+                <div class="row align-items-center g-3">
+                    <div class="col-12 col-lg-5">
+                        <h5 class="mb-0">Queue Controls</h5>
+                        <small class="text-muted">Issue categorized tickets or call the next patient</small>
+                    </div>
+                    <div class="col-12 col-lg-7">
+                        <div class="d-flex flex-column flex-sm-row align-items-stretch gap-2">
+                            <select id="ticket-category" class="form-select form-select-lg">
+                                <option value="Bloods or Script">Bloods or Script</option>
+                                <option value="Review">Review</option>
+                                <option value="Consultation">Consultation</option>
+                                <option value="Skin">Skin</option>
+                            </select>
+                            <button class="btn btn-primary btn-lg text-nowrap" onclick="createTicket()">+ Issue Ticket</button>
+                            <button class="btn btn-warning btn-lg text-white text-nowrap" onclick="callNext()">📢 Call Next</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
         {% endif %}
 
         <!-- Active Queue Table -->
-        <div class="card shadow-sm">
+        <div class="card shadow-sm mb-5">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Active Queue</h5>
                 <span class="badge bg-primary" id="live-indicator">● Live</span>
@@ -110,6 +121,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const userRole = "{{ user.role }}";
         const isOwner = "{{ is_owner }}" === "True";
@@ -146,9 +158,9 @@
 
                     let actionBtn = '-';
                     if (ticket.status === 'Called' && (isOwner || userRole.toLowerCase() !== 'admin')) {
-                        actionBtn = `<button class="btn btn-info btn-sm text-white" onclick="startConsultation(${ticket.id})">▶ Start Consultation</button>`;
+                        actionBtn = `<button class="btn btn-info btn-sm text-white" onclick="startConsultation(${ticket.id})">▶ Start</button>`;
                     } else if (ticket.status === 'In Consultation' && (isOwner || userRole.toLowerCase() !== 'admin')) {
-                        actionBtn = `<button class="btn btn-success btn-sm" onclick="endConsultation(${ticket.id})">⏹ End Consultation</button>`;
+                        actionBtn = `<button class="btn btn-success btn-sm" onclick="endConsultation(${ticket.id})">⏹ End</button>`;
                     }
 
                     html += `
