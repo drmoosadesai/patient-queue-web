@@ -66,6 +66,21 @@
             </div>
         </div>
 
+        <!-- Consults / Tickets Breakdown by Category/Option -->
+        <div class="card shadow-sm p-4 mb-4">
+            <h5 class="fw-bold text-secondary mb-3">Consultations Breakdown by Option</h5>
+            <ul class="list-group">
+                {% for category, count in category_stats.items() %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span class="fw-semibold text-dark">{{ category }}</span>
+                    <span class="badge bg-primary rounded-pill px-3 py-2 fs-6">{{ count }}</span>
+                </li>
+                {% else %}
+                <li class="list-group-item text-center text-muted py-3">No category data recorded for this period.</li>
+                {% endfor %}
+            </ul>
+        </div>
+
         <!-- Doctor Performance Table -->
         <div class="card shadow-sm p-4 mb-4">
             <h5 class="fw-bold text-secondary mb-3">Doctor Performance Breakdown</h5>

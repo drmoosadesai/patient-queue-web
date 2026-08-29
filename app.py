@@ -32,7 +32,6 @@ try:
         pool_reset_session=True,
         **DB_CONFIG
     )
-    # Ensure started_at column exists for consultation tracking
     temp_conn = db_pool.get_connection()
     temp_cursor = temp_conn.cursor()
     try:
@@ -133,6 +132,7 @@ def stats():
     waiting_count = 0
     called_count = 0
     doctor_stats = []
+    category_stats = {}
     hourly_labels = [f"{h:02d}:00" for h in range(7, 17)]
     hourly_data = [0 for _ in range(7, 17)]
 
@@ -175,6 +175,21 @@ def stats():
                     called_count = row.get("count", 0)
             except Exception:
                 pass
+
+            # Query to fetch category/option stats
+            try:
+                cursor.execute(f"""
+                    SELECT category, COUNT(*) as count 
+                    FROM tickets 
+                    WHERE {date_filter} 
+                    GROUP BY category
+                """, (val,))
+                for row in cursor.fetchall():
+                    cat = row.get("category") or "Unspecified"
+                    cnt = row.get("count", 0)
+                    category_stats[cat] = cnt
+            except Exception as e:
+                print(f"Category stats warning: {e}")
 
             try:
                 cursor.execute(f"""
@@ -223,6 +238,7 @@ def stats():
                            waiting_count=waiting_count, 
                            called_count=called_count,
                            doctor_stats=doctor_stats,
+                           category_stats=category_stats,
                            hourly_labels=hourly_labels,
                            hourly_data=hourly_data,
                            selected_date=selected_date,
