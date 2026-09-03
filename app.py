@@ -176,7 +176,6 @@ def stats():
             except Exception:
                 pass
 
-            # Query to fetch category/option stats
             try:
                 cursor.execute(f"""
                     SELECT category, COUNT(*) as count 

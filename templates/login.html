@@ -86,14 +86,14 @@
             50% { transform: translateY(-6px); }
         }
 
-        .form-control, .input-group-text, .form-select {
+        .form-control, .input-group-text {
             background: rgba(255, 255, 255, 0.05) !important;
             border-color: rgba(255, 255, 255, 0.1) !important;
             color: #f8fafc !important;
             transition: all 0.3s ease;
         }
 
-        .form-control:focus, .form-select:focus {
+        .form-control:focus {
             background: rgba(255, 255, 255, 0.08) !important;
             border-color: var(--neon-cyan) !important;
             box-shadow: 0 0 15px rgba(6, 182, 212, 0.25) !important;
@@ -137,38 +137,6 @@
             box-shadow: 0 0 25px rgba(6, 182, 212, 0.5);
         }
 
-        /* Futuristic Dropdown Styling */
-        .custom-dropdown-container {
-            position: relative;
-        }
-
-        .dropdown-menu-cyber {
-            background: rgba(15, 23, 42, 0.95);
-            backdrop-filter: blur(15px);
-            border: 1px solid rgba(6, 182, 212, 0.3);
-            border-radius: 0.75rem;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-            padding: 0.5rem;
-            animation: dropdownFade 0.2s ease-out forwards;
-        }
-
-        @keyframes dropdownFade {
-            0% { opacity: 0; transform: translateY(-10px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
-
-        .dropdown-item {
-            color: #cbd5e1;
-            border-radius: 0.5rem;
-            transition: all 0.2s ease;
-        }
-
-        .dropdown-item:hover, .dropdown-item:focus {
-            background: linear-gradient(135deg, rgba(79, 70, 229, 0.4), rgba(6, 182, 212, 0.4));
-            color: #ffffff;
-            transform: translateX(4px);
-        }
-
         .alert-cyber {
             background: rgba(239, 68, 68, 0.15);
             border: 1px solid rgba(239, 68, 68, 0.3);
@@ -208,20 +176,6 @@
             {% endif %}
 
             <form method="POST">
-                <div class="mb-3">
-                    <label class="form-label fw-semibold text-secondary small">Access Terminal / Department</label>
-                    <div class="input-group custom-dropdown-container">
-                        <span class="input-group-text border-end-0 text-muted"><i class="bi bi-grid-fill"></i></span>
-                        <select name="department" class="form-select border-start-0 ps-2" required>
-                            <option value="" disabled selected>Select operational desk...</option>
-                            <option value="reception">General Reception Desk</option>
-                            <option value="triage">Emergency / Triage</option>
-                            <option value="consultation">Specialist Consultation</option>
-                            <option value="pharmacy">Pharmacy Dispensing Unit</option>
-                        </select>
-                    </div>
-                </div>
-
                 <div class="mb-3">
                     <label class="form-label fw-semibold text-secondary small">Username ID</label>
                     <div class="input-group">
