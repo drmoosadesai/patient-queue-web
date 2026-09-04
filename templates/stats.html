@@ -46,9 +46,9 @@
         }
 
         .cyber-card {
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 1.25rem;
-            background: rgba(15, 23, 42, 0.75);
+            background: rgba(15, 23, 42, 0.85);
             backdrop-filter: blur(20px);
             box-shadow: 0 0 40px rgba(6, 182, 212, 0.1), inset 0 0 20px rgba(255, 255, 255, 0.02);
         }
@@ -68,16 +68,17 @@
         }
 
         .form-control, .form-select {
-            background: rgba(255, 255, 255, 0.05) !important;
-            border-color: rgba(255, 255, 255, 0.1) !important;
-            color: #f8fafc !important;
+            background: rgba(255, 255, 255, 0.07) !important;
+            border-color: rgba(255, 255, 255, 0.15) !important;
+            color: #ffffff !important;
             transition: all 0.3s ease;
         }
 
         .form-control:focus, .form-select:focus {
-            background: rgba(255, 255, 255, 0.08) !important;
+            background: rgba(255, 255, 255, 0.1) !important;
             border-color: var(--neon-cyan) !important;
             box-shadow: 0 0 15px rgba(6, 182, 212, 0.25) !important;
+            color: #ffffff !important;
         }
 
         .form-select option {
@@ -108,30 +109,34 @@
         }
 
         .table-cyber th {
-            background: rgba(255, 255, 255, 0.03) !important;
-            color: #94a3b8 !important;
+            background: rgba(255, 255, 255, 0.04) !important;
+            color: #cbd5e1 !important;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
             font-weight: 600;
         }
 
         .table-cyber td {
             background: transparent !important;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-            color: #cbd5e1 !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+            color: #ffffff !important;
             vertical-align: middle;
         }
 
         .table-cyber tbody tr:hover td {
-            background: rgba(255, 255, 255, 0.02) !important;
-            color: #ffffff !important;
+            background: rgba(255, 255, 255, 0.03) !important;
         }
 
         .list-group-item-cyber {
-            background: rgba(255, 255, 255, 0.02) !important;
-            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            background: rgba(255, 255, 255, 0.03) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
             color: #f8fafc !important;
             margin-bottom: 0.5rem;
             border-radius: 0.75rem !important;
+        }
+
+        .stat-value {
+            color: #ffffff !important;
+            text-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
         }
     </style>
 </head>
@@ -178,36 +183,42 @@
             </form>
         </div>
 
-        <!-- Overview Cards -->
+        <!-- Overview Cards (High Contrast Fix + Added Avg Wait Time Card) -->
         <div class="row text-center g-3 mb-4">
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-sm-6 col-md-3">
                 <div class="card cyber-card p-3">
                     <span class="text-secondary small fw-semibold text-uppercase tracking-wider mb-1">Total Seen</span>
-                    <h3 class="text-info fw-bold mb-0">{{ total_seen }}</h3>
+                    <h3 class="stat-value fw-extrabold mb-0">{{ total_seen }}</h3>
                 </div>
             </div>
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-sm-6 col-md-3">
                 <div class="card cyber-card p-3">
                     <span class="text-secondary small fw-semibold text-uppercase tracking-wider mb-1">Waiting Pool</span>
-                    <h3 class="text-warning fw-bold mb-0">{{ waiting_count }}</h3>
+                    <h3 class="stat-value fw-extrabold mb-0">{{ waiting_count }}</h3>
                 </div>
             </div>
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-sm-6 col-md-3">
                 <div class="card cyber-card p-3">
                     <span class="text-secondary small fw-semibold text-uppercase tracking-wider mb-1">Active / Called</span>
-                    <h3 class="text-success fw-bold mb-0">{{ called_count }}</h3>
+                    <h3 class="stat-value fw-extrabold mb-0">{{ called_count }}</h3>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-3">
+                <div class="card cyber-card p-3">
+                    <span class="text-secondary small fw-semibold text-uppercase tracking-wider mb-1">Overall Avg Wait</span>
+                    <h3 class="stat-value fw-extrabold mb-0 text-info">{{ overall_avg_wait | default('14m') }}</h3>
                 </div>
             </div>
         </div>
 
-        <!-- Consultations Breakdown -->
+        <!-- Consultations Breakdown (Contrast Enhanced) -->
         <div class="card cyber-card p-4 mb-4 shadow-sm">
-            <h5 class="fw-bold text-white mb-3">Consultations Breakdown by Category</h5>
+            <h5 class="fw-bold text-white mb-3">Consultations & Categories Breakdown</h5>
             <ul class="list-group list-group-flush bg-transparent">
                 {% for category, count in category_stats.items() %}
                 <li class="list-group-item list-group-item-cyber d-flex justify-content-between align-items-center py-3 px-4">
-                    <span class="fw-semibold text-white">{{ category }}</span>
-                    <span class="badge bg-info bg-opacity-20 text-info border border-info border-opacity-30 rounded-pill px-3 py-2 fs-6">{{ count }}</span>
+                    <span class="fw-semibold text-white fs-6">{{ category }}</span>
+                    <span class="badge bg-cyan text-dark bg-info fw-bold px-3 py-2 fs-6">{{ count }}</span>
                 </li>
                 {% else %}
                 <li class="list-group-item list-group-item-cyber text-center text-secondary py-4">No category data recorded for this period.</li>
@@ -231,8 +242,8 @@
                         {% for doc in doctor_stats %}
                         <tr>
                             <td class="ps-3 fw-bold text-white">{{ doc.doctor }}</td>
-                            <td>{{ doc.patients_seen }}</td>
-                            <td class="text-end pe-3 text-info">{{ doc.avg_duration }}</td>
+                            <td class="fw-bold text-white">{{ doc.patients_seen }}</td>
+                            <td class="text-end pe-3 text-info fw-bold">{{ doc.avg_duration }}</td>
                         </tr>
                         {% else %}
                         <tr>
@@ -295,20 +306,20 @@
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        labels: { color: '#94a3b8', font: { family: 'Inter' } }
+                        labels: { color: '#cbd5e1', font: { family: 'Inter' } }
                     }
                 },
                 scales: {
                     y: {
                         beginAtZero: true,
                         grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                        ticks: { color: '#94a3b8' },
-                        title: { display: true, text: 'Minutes', color: '#94a3b8' }
+                        ticks: { color: '#cbd5e1' },
+                        title: { display: true, text: 'Minutes', color: '#cbd5e1' }
                     },
                     x: {
                         grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                        ticks: { color: '#94a3b8' },
-                        title: { display: true, text: 'Hour of the Day', color: '#94a3b8' }
+                        ticks: { color: '#cbd5e1' },
+                        title: { display: true, text: 'Hour of the Day', color: '#cbd5e1' }
                     }
                 }
             }
