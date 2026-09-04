@@ -168,7 +168,6 @@
     </nav>
 
     <div class="container px-3 pb-5">
-        <!-- Live Counters -->
         <div class="row mb-4">
             <div class="col-12 col-md-4 mb-3 mb-md-0">
                 <div class="card cyber-card text-white">
@@ -196,7 +195,6 @@
             </div>
         </div>
 
-        <!-- Action Panel -->
         {% set current_role = user.role | trim | lower %}
         {% if is_owner or current_role in ['admin', 'owner', 'reception'] %}
         <div class="card cyber-card mb-4 shadow-sm">
@@ -207,15 +205,15 @@
                         <small class="text-secondary">Issue categorized tickets or call the next patient</small>
                     </div>
                     <div class="col-12 col-lg-7">
-                        <div class="d-flex flex-column flex-sm-row align-items-stretch gap-2">
-                            <select id="ticket-category" class="form-select form-select-lg">
+                        <div class="d-flex flex-column flex-md-row align-items-stretch gap-2">
+                            <select id="ticket-category" class="form-select">
                                 <option value="Bloods or Script">Bloods or Script</option>
                                 <option value="Review">Review</option>
                                 <option value="Consultation" selected>Consultation</option>
                                 <option value="Skin">Skin</option>
                             </select>
-                            <button class="btn btn-custom btn-lg text-nowrap fw-bold rounded-3" onclick="createTicket()">+ Issue Ticket</button>
-                            <button class="btn btn-warning-custom btn-lg text-nowrap fw-bold rounded-3" onclick="callNext()">📢 Call Next</button>
+                            <button class="btn btn-custom px-3 py-2 fw-bold rounded-3 text-nowrap" onclick="createTicket()">+ Issue Ticket</button>
+                            <button class="btn btn-warning-custom px-3 py-2 fw-bold rounded-3 text-nowrap" onclick="callNext()">📢 Call Next</button>
                         </div>
                     </div>
                 </div>
@@ -223,7 +221,6 @@
         </div>
         {% endif %}
 
-        <!-- Active Queue Table -->
         <div class="card cyber-card shadow-sm mb-5 overflow-hidden">
             <div class="card-header bg-transparent border-bottom border-secondary border-opacity-10 d-flex justify-content-between align-items-center py-3 px-4">
                 <h5 class="mb-0 text-white fw-bold">Active Queue</h5>
@@ -326,7 +323,6 @@
             const categorySelect = document.getElementById('ticket-category');
             const category = categorySelect ? categorySelect.value : 'Consultation';
 
-            // OPTIMISTIC UI: Instantly add a fake placeholder row to make it feel instant
             const fakeId = 'temp-' + Date.now();
             const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             
@@ -357,12 +353,10 @@
             } catch (err) {
                 console.error("Error creating ticket:", err);
             }
-            // Fetch true sync state from Aiven immediately after
             fetchQueue(true);
         }
 
         async function callNext() {
-            // OPTIMISTIC UI: Instantly update waiting count locally
             if (lastQueueData.waiting_count > 0) {
                 lastQueueData.waiting_count -= 1;
                 lastQueueData.called_count += 1;
