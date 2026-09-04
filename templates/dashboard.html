@@ -257,71 +257,92 @@
         const userRole = "{{ user.role }}";
         const isOwner = "{{ is_owner }}" === "True";
         const processingTickets = new Set();
+        let lastQueueData = { tickets: [], total_seen: 0, waiting_count: 0, called_count: 0 };
 
-        async function fetchQueue() {
+        async function fetchQueue(silent = false) {
             try {
                 const res = await fetch('/api/queue');
                 if (!res.ok) return;
                 const data = await res.json();
+                lastQueueData = data;
                 
                 document.getElementById('waiting-count').innerText = data.waiting_count;
                 document.getElementById('called-count').innerText = data.called_count;
                 document.getElementById('seen-count').innerText = data.total_seen;
 
-                const tbody = document.getElementById('queue-table-body');
-                if (data.tickets.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-secondary">No active patients in the queue.</td></tr>`;
-                    return;
-                }
-
-                let html = '';
-                let visibleRows = 0;
-
-                data.tickets.forEach(ticket => {
-                    if (processingTickets.has(ticket.id)) return;
-
-                    let statusBadge = `<span class="badge badge-waiting px-2 py-1">Waiting</span>`;
-                    if (ticket.status === 'Called') {
-                        statusBadge = `<span class="badge badge-called px-2 py-1">Called</span>`;
-                    } else if (ticket.status === 'In Consultation') {
-                        statusBadge = `<span class="badge badge-consulting px-2 py-1">In Consultation</span>`;
-                    }
-
-                    let actionBtn = '-';
-                    if (ticket.status === 'Called' && (isOwner || userRole.toLowerCase() !== 'admin')) {
-                        actionBtn = `<button class="btn btn-outline-info btn-sm text-white px-3" onclick="startConsultation(${ticket.id})">▶ Start</button>`;
-                    } else if (ticket.status === 'In Consultation' && (isOwner || userRole.toLowerCase() !== 'admin')) {
-                        actionBtn = `<button class="btn btn-outline-success btn-sm px-3" onclick="endConsultation(${ticket.id})">⏹ End</button>`;
-                    }
-
-                    html += `
-                        <tr id="ticket-row-${ticket.id}">
-                            <td class="ps-4"><strong class="text-white">${ticket.ticket_number}</strong></td>
-                            <td>${ticket.category || 'Consultation'}</td>
-                            <td class="text-secondary small">${ticket.created_at || ''}</td>
-                            <td>${statusBadge}</td>
-                            <td class="text-end pe-4">${actionBtn}</td>
-                        </tr>
-                    `;
-                    visibleRows++;
-                });
-                
-                if (visibleRows > 0) {
-                    tbody.innerHTML = html;
-                } else if (data.tickets.length === processingTickets.size) {
-                    // Do nothing while processing
-                } else {
-                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-secondary">No active patients in the queue.</td></tr>`;
-                }
-
+                renderQueueTable(data.tickets);
             } catch (err) {
                 console.error("Error fetching queue:", err);
+            }
+        }
+
+        function renderQueueTable(tickets) {
+            const tbody = document.getElementById('queue-table-body');
+            if (tickets.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-secondary">No active patients in the queue.</td></tr>`;
+                return;
+            }
+
+            let html = '';
+            let visibleRows = 0;
+
+            tickets.forEach(ticket => {
+                if (processingTickets.has(ticket.id)) return;
+
+                let statusBadge = `<span class="badge badge-waiting px-2 py-1">Waiting</span>`;
+                if (ticket.status === 'Called') {
+                    statusBadge = `<span class="badge badge-called px-2 py-1">Called</span>`;
+                } else if (ticket.status === 'In Consultation') {
+                    statusBadge = `<span class="badge badge-consulting px-2 py-1">In Consultation</span>`;
+                }
+
+                let actionBtn = '-';
+                if (ticket.status === 'Called' && (isOwner || userRole.toLowerCase() !== 'admin')) {
+                    actionBtn = `<button class="btn btn-outline-info btn-sm text-white px-3" onclick="startConsultation(${ticket.id})">▶ Start</button>`;
+                } else if (ticket.status === 'In Consultation' && (isOwner || userRole.toLowerCase() !== 'admin')) {
+                    actionBtn = `<button class="btn btn-outline-success btn-sm px-3" onclick="endConsultation(${ticket.id})">⏹ End</button>`;
+                }
+
+                html += `
+                    <tr id="ticket-row-${ticket.id}">
+                        <td class="ps-4"><strong class="text-white">${ticket.ticket_number}</strong></td>
+                        <td>${ticket.category || 'Consultation'}</td>
+                        <td class="text-secondary small">${ticket.created_at || 'Just now'}</td>
+                        <td>${statusBadge}</td>
+                        <td class="text-end pe-4">${actionBtn}</td>
+                    </tr>
+                `;
+                visibleRows++;
+            });
+            
+            if (visibleRows > 0) {
+                tbody.innerHTML = html;
+            } else {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-secondary">No active patients in the queue.</td></tr>`;
             }
         }
 
         async function createTicket() {
             const categorySelect = document.getElementById('ticket-category');
             const category = categorySelect ? categorySelect.value : 'Consultation';
+
+            // OPTIMISTIC UI: Instantly add a fake placeholder row to make it feel instant
+            const fakeId = 'temp-' + Date.now();
+            const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            const newTicketObj = {
+                id: fakeId,
+                ticket_number: '...',
+                category: category,
+                created_at: nowStr,
+                status: 'Waiting'
+            };
+
+            lastQueueData.tickets.push(newTicketObj);
+            lastQueueData.waiting_count += 1;
+            
+            document.getElementById('waiting-count').innerText = lastQueueData.waiting_count;
+            renderQueueTable(lastQueueData.tickets);
 
             try {
                 const res = await fetch('/api/ticket/create', {
@@ -330,28 +351,35 @@
                     body: JSON.stringify({ category: category })
                 });
                 const data = await res.json();
-                if (data.success) {
-                    fetchQueue();
-                } else {
+                if (!data.success) {
                     alert('Error creating ticket: ' + (data.error || 'Unauthorized'));
                 }
             } catch (err) {
                 console.error("Error creating ticket:", err);
             }
+            // Fetch true sync state from Aiven immediately after
+            fetchQueue(true);
         }
 
         async function callNext() {
+            // OPTIMISTIC UI: Instantly update waiting count locally
+            if (lastQueueData.waiting_count > 0) {
+                lastQueueData.waiting_count -= 1;
+                lastQueueData.called_count += 1;
+                document.getElementById('waiting-count').innerText = lastQueueData.waiting_count;
+                document.getElementById('called-count').innerText = lastQueueData.called_count;
+            }
+
             try {
                 const res = await fetch('/api/ticket/call_next', { method: 'POST' });
                 const data = await res.json();
-                if (data.success) {
-                    fetchQueue();
-                } else {
+                if (!data.success) {
                     alert(data.message || 'No patients waiting.');
                 }
             } catch (err) {
                 console.error("Error calling next patient:", err);
             }
+            fetchQueue(true);
         }
 
         async function startConsultation(ticketId) {
@@ -373,7 +401,7 @@
                 console.error("Error starting consultation:", err);
             }
             processingTickets.delete(ticketId);
-            fetchQueue();
+            fetchQueue(true);
         }
 
         async function endConsultation(ticketId) {
@@ -397,10 +425,10 @@
                 console.error("Error ending consultation:", err);
             }
             processingTickets.delete(ticketId);
-            fetchQueue();
+            fetchQueue(true);
         }
 
-        setInterval(fetchQueue, 15000);
+        setInterval(() => fetchQueue(true), 15000);
         fetchQueue();
     </script>
 </body>
